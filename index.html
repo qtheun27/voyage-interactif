@@ -193,8 +193,8 @@
 <!-- ============ Ajouter des photos ============ -->
 <label class="fab" id="fab" hidden>
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-  Ajouter des photos
-  <input type="file" id="f-photos" accept="image/*" multiple>
+  <span class="fab-txt">Ajouter des photos</span>
+  <input type="file" id="f-photos" accept="image/*" multiple aria-label="Ajouter des photos">
 </label>
 
 <div class="overlay" id="add" hidden>
@@ -203,7 +203,6 @@
       <h3 id="add-title">Nouvelles photos</h3>
       <button type="button" class="x" id="add-close" aria-label="Fermer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
-    <div class="thumbs" id="thumbs"></div>
     <div class="summary" id="summary"></div>
     <div class="where" id="where" hidden>
       <div style="font-weight:600;font-size:.88rem" id="where-title">Où était-ce ?</div>
@@ -217,10 +216,9 @@
       </div>
       <div class="coords" id="coords">Aucune position choisie</div>
     </div>
-    <label class="f">Petit mot <small>Facultatif</small><textarea id="f-caption" maxlength="600" placeholder="Ce qu'on a vu, mangé, ressenti…"></textarea></label>
+    <div class="plan" id="plan"></div>
     <details class="more" id="more">
       <summary>Corriger le lieu ou l'heure</summary>
-      <label class="f">Nom du lieu <small id="name-hint">Trouvé automatiquement</small><input type="text" id="f-name" maxlength="80"></label>
       <label class="f">Heure <small>Utilisée seulement pour les photos sans heure</small><input type="datetime-local" id="f-when"></label>
       <button type="button" class="btn" id="btn-pick2">Placer toutes ces photos ailleurs sur la carte</button>
     </details>
@@ -258,6 +256,26 @@
       <button type="submit" class="btn primary" id="pl-submit">Ajouter au carnet</button>
     </div>
   </form>
+</div>
+
+<!-- ============ Trajet ============ -->
+<div class="overlay" id="legsheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ls-title">
+    <div class="sheet-head">
+      <h3 id="ls-title">Modifier le trajet</h3>
+      <button type="button" class="x" data-close="legsheet" aria-label="Fermer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <p class="muted" id="ls-from" style="margin:0"></p>
+    <div class="f">Moyen de transport<div class="modes" id="ls-modes"></div></div>
+    <label class="f">Nom du trajet <small>Facultatif, par exemple « Vol Ryanair FR 1234 » ou « Ferry pour Gozo »</small><input type="text" id="ls-label" maxlength="80"></label>
+    <label class="f">Petit mot <small>Facultatif</small><textarea id="ls-caption" maxlength="600"></textarea></label>
+    <label class="check"><input type="checkbox" id="ls-hidden"> Masquer ce trajet dans le carnet (il reste dessiné sur la carte)</label>
+    <div class="msg" id="ls-msg" hidden></div>
+    <div class="sheet-actions">
+      <button type="button" class="btn" data-close="legsheet">Annuler</button>
+      <button type="button" class="btn primary" id="ls-save">Enregistrer</button>
+    </div>
+  </div>
 </div>
 
 <!-- ============ Accueil du voyage (visiteurs) ============ -->
@@ -340,12 +358,15 @@
         <div class="grid2">
           <label class="f only-stop">Étiquette <small>Facultatif</small><input type="text" id="e-tag" maxlength="30" list="dl-tags" placeholder="Départ, Arrivée, Hôtel…"></label>
           <label class="f" id="e-mode-label">Arrivé ici en <select id="e-mode">
-            <option value="">Automatique</option><option value="plane">Avion</option><option value="boat">Bateau</option><option value="car">Voiture</option><option value="bus">Bus</option><option value="train">Train</option><option value="walk">À pied</option>
+            <option value="">Automatique</option><option value="plane">Avion</option><option value="boat">Bateau</option><option value="car">Voiture</option><option value="taxi">Taxi</option><option value="bus">Bus</option><option value="train">Train</option><option value="bike">Vélo</option><option value="walk">À pied</option>
           </select></label>
         </div>
         <label class="check" id="e-moving-row"><input type="checkbox" id="e-moving"> Cette photo a été prise en route (elle dessine le trajet au lieu de faire une étape)</label>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn only-stop" type="button" id="e-move">Déplacer sur la carte</button>
+          <button class="btn" type="button" id="e-legbtn">Modifier le trajet</button>
+          <button class="btn only-stop" type="button" id="e-merge">Fusionner avec l'étape précédente</button>
+          <button class="btn only-stop" type="button" id="e-split">Nouvelle étape à partir de cette photo</button>
           <button class="btn danger" type="button" id="e-delphoto">Retirer cette photo</button>
           <button class="btn danger" type="button" id="e-delstop">Supprimer l'étape</button>
         </div>

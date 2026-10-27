@@ -42,9 +42,11 @@ const txt = s => s.replace(/\s+/g, ' ').trim();
   await p.waitForFunction(() => document.querySelector('#status').textContent.includes('Pas encore commencé'));
   const dir = R + '/tests/fixtures/voyage/';
   await p.setInputFiles('#f-photos', fs.readdirSync(dir).sort().map(f => dir + f));
-  await p.waitForFunction(() => document.querySelectorAll('#thumbs .thumb').length === 9);
+  await p.waitForFunction(() => document.querySelectorAll('#plan .plan-item').length >= 5 && !document.querySelector('#add-submit').disabled);
+  await p.waitForTimeout(1500);
   log('résumé :', txt(await p.textContent('#summary')));
-  log('badges :', await p.$$eval('#thumbs .meta', els => els.map(e => e.textContent.replace(/\s+/g, ' ').trim()).join(' | ')));
+  log('plan :', (await p.$$eval('#plan .plan-item', els => els.map(e => (e.classList.contains('leg') ? '↝ ' + e.querySelector('b').textContent : '● ' + e.querySelector('input').value) + ' (' + e.querySelectorAll('.plan-strip img').length + ')'))).join('  |  '));
+  await p.screenshot({ path: OUT + '/v0-plan.png' });
   await p.click('#add-submit');
   await p.waitForFunction(() => document.querySelector('#add').hidden, null, { timeout: 60000 });
   await p.waitForFunction(() => document.querySelectorAll('#list .leg').length >= 2, null, { timeout: 15000 });
@@ -57,7 +59,7 @@ const txt = s => s.replace(/\s+/g, ' ').trim();
   await p.waitForTimeout(800);
   await p.screenshot({ path: OUT + '/v2-aller-retour.png' });
   // Visionneuse depuis le vol : photo du hublot, puis on enchaîne
-  await p.click('#list .leg.m-plane button');
+  await p.click('#list .leg.m-plane button[data-open]');
   await p.waitForSelector('#lb:not([hidden])');
   log('visionneuse vol :', txt(await p.textContent('#lb-when')), '|', txt(await p.textContent('#lb-title')));
   await p.click('#lb-editbtn');
@@ -67,6 +69,17 @@ const txt = s => s.replace(/\s+/g, ' ').trim();
   log('photo suivante :', txt(await p.textContent('#lb-title')), '|', await p.textContent('#lb-img .lb-count'));
   await p.screenshot({ path: OUT + '/v3-visionneuse.png' });
   await p.click('#lb-close');
+  // Fiche trajet : passer « En voiture » (Luqa -> Valletta) en bus, avec un nom
+  await p.click('#list .leg.m-car .rowedit');
+  await p.waitForSelector('#legsheet:not([hidden])');
+  await p.click('#ls-modes [data-mode="bus"]'); await p.fill('#ls-label', 'Bus X4 pour La Valette'); await p.click('#ls-save');
+  await p.waitForFunction(() => [...document.querySelectorAll('#list .leg')].some(e => e.textContent.includes('Bus X4')));
+  log('trajet modifié :', txt(await p.textContent('#list .leg.m-bus')));
+  // Doublons : réimporter les mêmes photos ne publie rien
+  await p.setInputFiles('#f-photos', fs.readdirSync(dir).sort().map(f => dir + f));
+  await p.waitForFunction(() => /déjà publiée/.test(document.querySelector('#summary').textContent));
+  log('réimport :', txt(await p.textContent('#add-title')), '|', (await p.textContent('#summary')).match(/\d+ photos? déjà publiées?/)[0]);
+  await p.click('#add-cancel');
   // Lieu sans photo
   await p.click('#btn-addplace');
   await p.fill('#pl-search', 'maison charleroi');
@@ -108,6 +121,23 @@ const txt = s => s.replace(/\s+/g, ' ').trim();
   await v.waitForTimeout(1500);
   log('accueil visiteur :', txt(await v.textContent('#hero')));
   await v.screenshot({ path: OUT + '/v7-accueil-mobile.png' });
+  // Pas de défilement horizontal sur téléphone
+  const overflow = async (label) => {
+    const r = await v.evaluate(() => {
+      const W = document.documentElement.clientWidth, out = [];
+      document.querySelectorAll('body *').forEach(el => { const b = el.getBoundingClientRect(); if (b.width && b.right > W + 1 && getComputedStyle(el).position !== 'fixed' && !el.closest('.leaflet-container,.days,.film,.strip,.hero')) out.push((el.id ? '#' + el.id : el.tagName.toLowerCase() + '.' + [...el.classList].join('.')) + ' ' + Math.round(b.right)); });
+      return { sw: document.documentElement.scrollWidth, W, out: out.slice(0, 8) };
+    });
+    log(`débordement ${label} :`, r.sw > r.W ? `OUI (${r.sw} > ${r.W}) ${r.out.join(', ')}` : 'aucun');
+  };
+  await overflow('accueil du voyage');
+  await v.click('#hero-explore'); await v.waitForTimeout(500);
+  await overflow('carnet');
+  await v.click('#view-tabs [data-view="photos"]'); await overflow('galerie'); await v.click('#view-tabs [data-view="carnet"]');
+  await v.evaluate(() => window.scrollTo(0, 0));
+  await v.evaluate(() => { const b = document.querySelector('#btn-replay'); b.click(); });
+  await v.waitForTimeout(800); await overflow('revivre'); await v.click('#st-close'); await v.waitForTimeout(400);
+  await v.evaluate(() => { sessionStorage.clear(); }); await v.reload(); await v.waitForSelector('#hero:not([hidden])', { timeout: 15000 });
   await v.click('#hero-play');
   await v.waitForSelector('#story:not([hidden])');
   await v.waitForTimeout(2500);
@@ -120,7 +150,7 @@ const txt = s => s.replace(/\s+/g, ' ').trim();
   await v.waitForTimeout(600);
   await v.screenshot({ path: OUT + '/v10-carte-mobile.png' });
   // Visionneuse au doigt : balayage
-  await v.click('#list .stop button:has(img)');
+  await v.click('#list .stop button[data-open]:has(img)');
   await v.waitForSelector('#lb:not([hidden])');
   const before = await v.textContent('#lb-img .lb-count');
   await v.dispatchEvent('#lb-img', 'touchstart', { touches: [{ identifier: 0, clientX: 300, clientY: 300 }] });
@@ -129,7 +159,7 @@ const txt = s => s.replace(/\s+/g, ' ').trim();
   await v.screenshot({ path: OUT + '/v11-visionneuse-mobile.png' });
   // Direct : une nouvelle photo arrive
   await p.setInputFiles('#f-photos', [R + '/tests/fixtures/gps_fuseau.jpg']);
-  await p.waitForFunction(() => document.querySelectorAll('#thumbs .thumb').length === 1);
+  await p.waitForFunction(() => !document.querySelector('#add-submit').disabled);
   await p.click('#add-submit');
   await v.waitForFunction(() => !document.querySelector('#toast').hidden && document.querySelector('#toast').textContent.includes('Nouvelle photo'), null, { timeout: 15000 });
   log('notification visiteur :', await v.textContent('#toast'));

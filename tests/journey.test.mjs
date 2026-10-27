@@ -92,8 +92,19 @@ test("données existantes : photos « Arrivée » restées sur Charleroi, affich
   ];
   const j = buildJourney(ps, { ...opts, airport });
   const names = j.timeline.map(e => e.kind === "stop" ? `S${e.items.length}${e.tag ? "·" + e.tag : ""}` : e.label);
-  assert.deepEqual(names, ["S1·Départ", "À pied", "S2", "Vol aller", "S2·Arrivée", "En voiture", "S1", "À pied", "S1"]);
+  assert.deepEqual(names, ["S1·Départ", "À pied", "S2", "Vol aller", "S2·Arrivée", "En voiture", "S2"]);
   const arr = j.stops.find(s => s.tag === "Arrivée");
   assert.equal(arr.place, airport.name); assert.equal(arr.out, false);
   assert.equal(j.legs.find(l => l.mode === "plane").label, "Vol aller");
+});
+
+test("réglages de l'éditeur : trajet renommé, masqué, étapes fusionnées ou séparées", () => {
+  const a = ph(35.8989, 14.5146, T(25, 12, 0)), b = ph(35.9122, 14.5042, T(25, 15, 0), { arriveBy: "bike", legLabel: "Balade le long de la côte", legCaption: "Super vue" });
+  let j = buildJourney([a, b], opts);
+  assert.equal(j.legs[0].mode, "bike"); assert.equal(j.legs[0].label, "Balade le long de la côte"); assert.equal(j.legs[0].caption, "Super vue");
+  assert.ok(j.timeline.includes(j.legs[0]) && j.legs[0].notable);
+  j = buildJourney([a, { ...b, legHidden: true }], opts); assert.equal(j.legs[0].notable, false);
+  j = buildJourney([a, { ...b, joinPrev: true, arriveBy: "", legLabel: "" }], opts); assert.equal(j.stops.length, 1);
+  const c = ph(35.8990, 14.5147, T(25, 12, 20), { splitHere: true });
+  j = buildJourney([a, c], opts); assert.equal(j.stops.length, 2);
 });
