@@ -59,6 +59,7 @@ const log = (...a) => console.log('•', ...a), txt = s => s.replace(/\s+/g, ' '
   await p.waitForFunction(() => document.querySelectorAll('#plan .plan-item').length >= 5 && !document.querySelector('#add-submit').disabled, null, { timeout: 60000 });
   await p.waitForTimeout(1200);
   log('résumé :', txt(await p.textContent('#summary')));
+  log('passage en HD proposé :', /1 photo déjà publiée en qualité standard/.test(await p.textContent('#summary')), '|', await p.textContent('#add-submit'));
   log('plan :', (await p.$$eval('#plan .plan-item', els => els.map(e => (e.classList.contains('leg') ? '↝ ' + e.querySelector('b').textContent : '● ' + e.querySelector('input').value) + ' (' + e.querySelectorAll('.plan-strip .fi').length + (e.querySelector('.vbadge') ? ', vidéo' : '') + ')'))).join(' | '));
   const t0 = Date.now();
   await p.click('#add-submit');
@@ -70,6 +71,13 @@ const log = (...a) => console.log('•', ...a), txt = s => s.replace(/\s+/g, ' '
   await p.click('#list .stop button[data-open]:has(img)'); await p.waitForSelector('#lb:not([hidden])');
   await p.waitForFunction(() => /127\.0\.0\.1:9000\/file\//.test(document.querySelector('#lb-img img')?.src || ''), null, { timeout: 15000 });
   log('photo en grand :', await p.$eval('#lb-img img', i => `${i.naturalWidth}×${i.naturalHeight} depuis ${new URL(i.src).host}`));
+  await p.click('#lb-close');
+  // La photo publiée avant Backblaze (Ċirkewwa) est passée en haute qualité, en gardant son nom
+  await p.click('#view-tabs [data-view="carnet"]').catch(() => {});
+  const cir = await p.$('#list .stop:has-text("Ċirkewwa") button[data-open]');
+  await cir.click(); await p.waitForSelector('#lb:not([hidden])');
+  await p.waitForFunction(() => /127\.0\.0\.1:9000\/file\//.test(document.querySelector('#lb-img img')?.src || ''), null, { timeout: 15000 }).catch(() => {});
+  log('photo passée en HD :', await p.$eval('#lb-img img', i => new URL(i.src).host), '|', await p.textContent('#lb-title'));
   await p.click('#lb-close');
   log('carnet (vidéos) :', await p.$$eval('#list .vbadge, #list .vmark', e => e.length), 'repères vidéo');
   await p.screenshot({ path: OUT + '/vid1-carnet.png' });
