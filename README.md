@@ -1,15 +1,15 @@
-# Voyage interactif
+# Mon carnet de voyages
 
 Des carnets de voyage illustrés : une carte nautique du pays, les photos placées et datées automatiquement, et les proches qui suivent en direct, **sans compte**, grâce à un code d'accès propre à chaque voyage.
 
 - Site statique sans build (GitHub Pages) : `index.html`, `app.js`, `style.css`, `firebase-config.js`
-- Firebase, forfait gratuit Spark : Authentication (Google pour les éditeurs, Anonyme pour les visiteurs) et Firestore. Les photos sont rangées dans Firestore (pas de Storage, pas de carte bancaire).
+- Firebase, forfait gratuit Spark : Authentication (Google ou e-mail + mot de passe pour les éditeurs, Anonyme pour les visiteurs) et Firestore. Les photos sont rangées dans Firestore (pas de Storage, pas de carte bancaire).
 - Liens : `#/` accueil · `#/v/{voyage}` un voyage · `#/v/{voyage}/admin` réglages
 
 ## Mise en route
 
 1. **Firebase**, dans la console du projet choisi :
-   1. *Authentication > Méthode de connexion* : activer **Google** et **Anonyme**.
+   1. *Authentication > Méthode de connexion* : activer **Google**, **Adresse e-mail/Mot de passe** et **Anonyme**.
    2. *Authentication > Paramètres > Domaines autorisés* : ajouter `qtheun27.github.io`.
    3. *Firestore Database* : créer la base (mode production) si elle n'existe pas.
    4. Publier `firestore.rules` (voir « Règles » ci-dessous).
@@ -29,12 +29,23 @@ Avec la CLI : `npx firebase deploy --only firestore:rules` (après avoir mis l'i
 
 | Chemin | Contenu |
 | --- | --- |
-| `trips/{id}` | `title, subtitle, country (ISO3), timezone, startDate, endDate, cover (JPEG), status, createdAt, owner` |
+| `trips/{id}` | `title, subtitle, country (ISO3), timezone, startDate, endDate, cover (JPEG 1000 px), coverStop, status, createdAt, owner` |
 | `trips/{id}/stops/{stop}` | une photo : `lat, lng, at, created, place, caption, thumb (JPEG 400 px), hasPhoto, approxPos, approxTime, device, by, byName` |
 | `trips/{id}/photos/{stop}` | `data` : la photo en grand (JPEG 1600 px, moins de 1 Mio), chargée à l'ouverture |
+| `trips/{id}/reactions/{photo}` | un champ par personne : `uid → "emoji|prénom"` (❤️ 😍 😂 😮 👏, une réaction par personne et par photo) |
+| `trips/{id}/comments/{id}` | `photoId` (une photo de l'étape), `text`, `name`, `uid`, `at` ; jamais modifié, supprimé par son auteur ou un éditeur |
+| `users/{uid}` | `photo` : photo de profil choisie dans la galerie (JPEG 256 px), lisible par son seul titulaire |
 | `trips/{id}/codes/{CODE}` | document vide ; l'id est le code. Jamais lisible par les visiteurs |
 | `trips/{id}/members/{uid}` | `{ code, joinedAt }`, créé par le visiteur avec le bon code |
 | `config/editors` | `{ emails: [...] }`, modifiable par le propriétaire depuis les réglages |
+
+## Compte, couverture, réactions
+
+- **En-tête** : nom de l'appli en entier, avatar à droite (photo Google, ou photo choisie dans la galerie). Menu : changer sa photo, créer ou changer son mot de passe, se déconnecter.
+- **Connexion éditeur** : Google, ou e-mail + mot de passe (adresse confirmée par le lien reçu par e-mail ; « Mot de passe oublié ? »). Un compte Google peut se créer un mot de passe pour se connecter aussi par e-mail. Seules les adresses de `config/editors` publient.
+- **Couverture** des voyages : choisie dans les réglages parmi les photos du voyage (l'image en grand est reprise) ou depuis la galerie ; la première photo envoyée devient la couverture tant qu'il n'y en a pas.
+- **Réactions** sur toutes les photos et **commentaires** sur les étapes et trajets, pour les proches (avec le code) comme pour les éditeurs, en direct ; le prénom des visiteurs est demandé une fois. Compteurs dans le carnet, message quand un commentaire arrive.
+- **Icône** : propositions dans `icons/propositions/` ; `node tools/render-icons.cjs icons/propositions/a-carnet.svg` régénère les PNG.
 
 ## Le récit du voyage
 

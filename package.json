@@ -7,7 +7,7 @@
     "test": "node --test tests/time.test.mjs tests/exif.test.mjs tests/journey.test.mjs tests/mov.test.mjs tests/s3.test.mjs",
     "test:rules": "firebase emulators:exec --only firestore,auth --project demo-voyage \"node --test tests/rules.test.mjs\"",
     "emulators": "firebase emulators:start --only firestore,auth --project demo-voyage",
-    "test:e2e": "node tests/e2e.cjs && node tests/e2e-voyage.cjs && node tests/e2e-video.cjs",
+    "test:e2e": "node tests/e2e.cjs && node tests/e2e-voyage.cjs && node tests/e2e-video.cjs && node tests/e2e-social.cjs",
     "mock-s3": "node tests/mock-s3.cjs 9000"
   },
   "devDependencies": {

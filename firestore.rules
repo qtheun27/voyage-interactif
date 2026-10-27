@@ -1,5 +1,5 @@
 rules_version = '2';
-// Voyage interactif : tout est sous trips/… et config/editors.
+// Mon carnet de voyages : tout est sous trips/…, users/… et config/….
 // Si ce fichier est fusionné avec des règles existantes, copier seulement le contenu
 // entre « DÉBUT VOYAGE INTERACTIF » et « FIN VOYAGE INTERACTIF » dans le bloc
 // match /databases/{database}/documents existant.
@@ -7,9 +7,10 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ===== DÉBUT VOYAGE INTERACTIF =====
+    // Compte Google, ou e-mail + mot de passe dont l'adresse a été vérifiée.
     function viSignedInWithGoogle() {
       return request.auth != null
-        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.firebase.sign_in_provider in ['google.com', 'password']
         && request.auth.token.email_verified == true;
     }
     function viIsOwner() {
@@ -23,6 +24,20 @@ service cloud.firestore {
     function viIsMember(tripId) {
       return request.auth != null
         && exists(/databases/$(database)/documents/trips/$(tripId)/members/$(request.auth.uid));
+    }
+
+    function viCanSee(tripId) {
+      return viIsMember(tripId) || viIsEditor();
+    }
+
+    // Profil d'un compte (photo choisie dans la galerie) : lisible et modifiable par son seul titulaire.
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if viSignedInWithGoogle() && request.auth.uid == uid
+        && (request.resource == null
+            || (request.resource.data.keys().hasOnly(['photo', 'updatedAt'])
+                && (!('photo' in request.resource.data)
+                    || (request.resource.data.photo is bytes && request.resource.data.photo.size() < 150000))));
     }
 
     match /config/editors {
@@ -50,6 +65,35 @@ service cloud.firestore {
       match /photos/{stopId} {
         allow read: if viIsMember(tripId) || viIsEditor();
         allow write: if viIsEditor();
+      }
+
+      // Réactions : un document par photo, un champ par personne (uid -> « emoji|prénom »).
+      // Chacun ne touche qu'à son propre champ.
+      match /reactions/{photoId} {
+        allow read: if viCanSee(tripId);
+        allow create: if viCanSee(tripId)
+          && request.resource.data.keys().hasOnly([request.auth.uid])
+          && request.resource.data[request.auth.uid] is string
+          && request.resource.data[request.auth.uid].size() <= 80;
+        allow update: if viCanSee(tripId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([request.auth.uid])
+          && (!(request.auth.uid in request.resource.data)
+              || (request.resource.data[request.auth.uid] is string
+                  && request.resource.data[request.auth.uid].size() <= 80));
+        allow delete: if viIsEditor();
+      }
+
+      // Commentaires sur les étapes : jamais modifiés, supprimés par leur auteur ou un éditeur.
+      match /comments/{commentId} {
+        allow read: if viCanSee(tripId);
+        allow create: if viCanSee(tripId)
+          && request.resource.data.keys().hasOnly(['photoId', 'text', 'name', 'uid', 'at'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.photoId is string && request.resource.data.photoId.size() <= 120
+          && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000
+          && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
+          && request.resource.data.at == request.time;
+        allow delete: if viIsEditor() || (request.auth != null && resource.data.uid == request.auth.uid);
       }
 
       // L'id du document est le code d'accès : jamais lisible ni listable par les visiteurs.
