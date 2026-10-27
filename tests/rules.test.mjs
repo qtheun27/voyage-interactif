@@ -46,6 +46,7 @@ test("visiteur sans code : ne voit rien", async () => {
   await assertFails(getDoc(doc(db, "trips/malte-2026/codes/MALTE-26")));
   await assertFails(getDocs(collectionGroup(db, "codes")));
   await assertFails(getDoc(doc(db, "config/editors")));
+  await assertFails(getDoc(doc(db, "config/storage")));
   await assertFails(getDoc(doc(v.firestore(), "trips/malte-2026/photos/s1")));
   const u = ctx();
   await assertFails(getDoc(doc(u.firestore(), "trips/malte-2026")));
@@ -68,6 +69,7 @@ test("mauvais code refusé, bon code accepté", async () => {
 test("visiteur avec le code de Malte : voit Malte, rien d'Islande", async () => {
   const v = visitor(); await assertSucceeds(join(v, "malte-2026", "MALTE-26"));
   const db = v.firestore();
+  await assertFails(getDoc(doc(db, "config/storage")));  // même avec le code, jamais la clé vidéo
   await assertSucceeds(getDoc(doc(db, "trips/malte-2026")));
   await assertSucceeds(getDocs(collection(db, "trips/malte-2026/stops")));
   await assertSucceeds(getDoc(doc(db, "trips/malte-2026/photos/s1")));
@@ -95,6 +97,7 @@ test("éditeur : tout voir, tout gérer", async () => {
   await assertSucceeds(setDoc(doc(db, "trips/malte-2026/stops/s2"), { lat: 1, lng: 2, at: 3 }));
   await assertSucceeds(getDocs(collection(db, "trips/malte-2026/members")));
   await assertSucceeds(updateDoc(doc(db, "config/editors"), { emails: ["q.theuninck@gmail.com"] }));
+  await assertSucceeds(setDoc(doc(db, "config/storage"), { keyId: "k", appKey: "secret" }));
   await assertSucceeds(setDoc(doc(db, "trips/malte-2026/photos/b"), { data: "x" }));
   await assertSucceeds(deleteDoc(doc(db, "trips/malte-2026/photos/s1")));
   await assertSucceeds(getDoc(doc(db, "trips/islande-2027/photos/s1")));
@@ -105,6 +108,8 @@ test("éditrice ajoutée dans config/editors, non-éditeurs refusés", async () 
   await assertSucceeds(getDoc(doc(c.firestore(), "trips/malte-2026")));
   await assertSucceeds(setDoc(doc(c.firestore(), "trips/malte-2026/stops/s3"), { lat: 1 }));
   await assertFails(updateDoc(doc(c.firestore(), "config/editors"), { emails: ["pirate@example.com"] })); // seul le propriétaire
+  await assertSucceeds(getDoc(doc(c.firestore(), "config/storage")));                  // les éditeurs lisent la clé vidéo
+  await assertFails(setDoc(doc(c.firestore(), "config/storage"), { keyId: "x" }));      // seul le propriétaire la change
   // Google mais pas dans la liste
   const g = ctx("g", { email: "inconnu@example.com", email_verified: true, firebase: { sign_in_provider: "google.com" } });
   await assertFails(getDoc(doc(g.firestore(), "trips/malte-2026")));

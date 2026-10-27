@@ -180,6 +180,20 @@
       <div class="sheet-actions"><button class="btn danger" type="button" id="a-kick">Déconnecter tous les visiteurs</button></div>
     </section>
 
+    <section class="panel" id="a-video-panel" hidden>
+      <h2>Vidéos (Backblaze B2)</h2>
+      <p class="muted">Les vidéos sont envoyées telles quelles sur ton seau Backblaze (10 Go gratuits). Ces réglages ne sont lisibles que par les éditeurs.</p>
+      <div class="grid2">
+        <label class="f">Point d'accès S3 <small>ex. s3.eu-central-003.backblazeb2.com</small><input type="text" id="v-endpoint" autocapitalize="off" spellcheck="false"></label>
+        <label class="f">Nom du seau<input type="text" id="v-bucket" autocapitalize="off" spellcheck="false"></label>
+        <label class="f">keyID<input type="text" id="v-keyid" autocapitalize="off" spellcheck="false" autocomplete="off"></label>
+        <label class="f">applicationKey<input type="password" id="v-appkey" autocapitalize="off" spellcheck="false" autocomplete="new-password"></label>
+      </div>
+      <label class="f">Adresse publique des fichiers <small>Remplie toute seule, ex. https://f003.backblazeb2.com/file/mon-seau</small><input type="text" id="v-public" autocapitalize="off" spellcheck="false"></label>
+      <div class="msg" id="v-msg" hidden></div>
+      <div class="sheet-actions"><button class="btn" type="button" id="v-test">Tester</button><button class="btn primary" type="button" id="v-save">Enregistrer</button></div>
+    </section>
+
     <section class="panel" id="a-editors-panel" hidden>
       <h2>Éditeurs</h2>
       <p class="muted">Adresses Google qui peuvent ajouter des photos et gérer tous les voyages. Une par ligne.</p>
@@ -194,7 +208,7 @@
 <label class="fab" id="fab" hidden>
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
   <span class="fab-txt">Ajouter des photos</span>
-  <input type="file" id="f-photos" accept="image/*" multiple aria-label="Ajouter des photos">
+  <input type="file" id="f-photos" accept="image/*,video/*" multiple aria-label="Ajouter des photos et des vidéos">
 </label>
 
 <div class="overlay" id="add" hidden>
@@ -309,6 +323,7 @@
       <button type="button" id="st-play" class="st-play" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg><svg class="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
       <button type="button" id="st-next" aria-label="Suivant"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM4 6v12l10.5-6z"/></svg></button>
     </div>
+    <button type="button" id="st-sound" aria-label="Activer le son" aria-pressed="false" hidden><svg class="i-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/></svg><svg class="i-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg></button>
     <button type="button" id="st-close" aria-label="Fermer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </div>
 </section>

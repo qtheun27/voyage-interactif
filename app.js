@@ -8,6 +8,8 @@ import { getFirestore, doc, getDoc, getDocFromServer, getDocs, setDoc, collectio
 import { firebaseConfig, OWNER_EMAIL, OWNER_NAME, emulators } from "./firebase-config.js";
 import { toLocalInput, fromLocalInput } from "./lib/time.js";
 import { readMeta } from "./lib/exif.js";
+import { readVideoMeta } from "./lib/mov.js";
+import { putFile, deleteFile, publicUrl, regionOf } from "./lib/s3.js";
 import { km, curve, fmtCoord, packPlace, reverseGeocode, searchPlaces, autoPlace, loadCountry, loadWorld, makeLand } from "./lib/geo.js";
 import { buildJourney, estimatePosition, legField, MODES } from "./lib/journey.js";
 import { loadPack, ICONS } from "./packs/index.js";
@@ -44,7 +46,7 @@ if (configured){
     window.__viTestSignIn = email => signInWithCredential(auth, GoogleAuthProvider.credential(JSON.stringify({sub: email, email, email_verified: true})));
   }
 }
-let user = null, isEditor = false, editorEmails = [];
+let user = null, isEditor = false, editorEmails = [], S3CFG = null;
 const isGoogle = u => !!u && !u.isAnonymous && u.providerData.some(p => p.providerId === "google.com");
 async function refreshRole(){
   isEditor = false; editorEmails = [];
@@ -53,6 +55,9 @@ async function refreshRole(){
     const s = await getDoc(doc(db, "config/editors"));
     isEditor = true; editorEmails = s.exists() ? (s.data().emails || []) : [];
   } catch(_){ isEditor = false; }
+  // Stockage des vidéos (Backblaze B2, compatible S3) : réglages lisibles par les seuls éditeurs.
+  S3CFG = null;
+  if (isEditor){ try { const c = await getDoc(doc(db, "config/storage")); if (c.exists() && c.data().keyId) S3CFG = c.data(); } catch(_){} }
 }
 let authReadyResolve; const authReady = new Promise(r => authReadyResolve = r);
 let firstAuth = true, gateBusy = false;
@@ -137,6 +142,21 @@ async function decodeImage(file){
   img.src = url;
   try { await img.decode(); } catch(_){ URL.revokeObjectURL(url); throw new Error("format"); }
   return {src:img, w:img.naturalWidth, h:img.naturalHeight, done:() => URL.revokeObjectURL(url)};
+}
+/* Une image tirée de la vidéo (vers 1 s) : affiche de la vidéo, sur la carte et dans le carnet. */
+const isVideoFile = f => /^video\//.test(f.type) || /\.(mov|mp4|m4v|3gp|webm)$/i.test(f.name);
+function decodeVideoFrame(file){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.preload = "auto"; v.setAttribute("playsinline", ""); v.src = url;
+    let doneOnce = false;
+    const fail = () => { if (doneOnce) return; doneOnce = true; clearTimeout(timer); URL.revokeObjectURL(url); reject(new Error("format")); };
+    const timer = setTimeout(fail, 20000);
+    v.onerror = fail;
+    v.onloadedmetadata = () => { v.play?.().then(() => v.pause()).catch(() => {}); v.currentTime = Math.min(1, (v.duration || 2) / 3); };
+    v.onseeked = () => { if (doneOnce) return; doneOnce = true; clearTimeout(timer);
+      resolve({src: v, w: v.videoWidth || 640, h: v.videoHeight || 360, duration: v.duration, done: () => { v.removeAttribute("src"); v.load(); URL.revokeObjectURL(url); }}); };
+  });
 }
 async function toJpeg(im, max, q){
   const k = Math.min(1, max / Math.max(im.w, im.h));
@@ -588,10 +608,12 @@ function ago(t){
   const h = Math.round(m/60); if (h < 24) return `il y a ${h} h`;
   const d = Math.round(h/24); return `il y a ${d} jour${d>1?"s":""}`;
 }
+const fmtSec = d => d ? `${Math.floor(d / 60)}:${String(Math.round(d % 60)).padStart(2, "0")}` : "";
+const vbadge = x => x?.video ? `<span class="vbadge"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>${esc(fmtSec(x.video.duration))}</span>` : "";
 function tripStats(){
-  const J = T.J, n = T.photos.filter(p => p.hasPhoto).length;
+  const J = T.J, n = T.photos.filter(p => p.hasPhoto && !p.video).length, nv = T.photos.filter(p => p.video).length;
   const kmTot = J ? J.legs.reduce((s, l) => s + l.km, 0) : 0;
-  return { n, stops: J?.stops.length || 0, days: J?.days.length || 0, km: kmTot,
+  return { n, nv, stops: J?.stops.length || 0, days: J?.days.length || 0, km: kmTot,
     last: T.photos.length ? Math.max(...T.photos.map(p => p.created || p.at)) : 0 };
 }
 
@@ -602,7 +624,7 @@ function renderStatus(){
   if (!T.photos.length){ st.innerHTML = `<span class="pill calm">Pas encore commencé</span>${T.trip.subtitle ? `<span>${esc(T.trip.subtitle)}</span>` : ""}`; return; }
   const s = tripStats(), live = Date.now() - s.last < 3*3600e3;
   st.innerHTML = `${live ? '<span class="pill live">En direct</span>' : '<span class="pill calm">En différé</span>'}
-    <span>${s.n} photo${s.n>1?"s":""} · ${s.stops} étape${s.stops>1?"s":""} · ${s.days} jour${s.days>1?"s":""} · ${fmtKm(s.km)} km parcourus · ${esc(ago(s.last))}</span>`;
+    <span>${s.n} photo${s.n>1?"s":""}${s.nv ? ` · ${s.nv} vidéo${s.nv>1?"s":""}` : ""} · ${s.stops} étape${s.stops>1?"s":""} · ${s.days} jour${s.days>1?"s":""} · ${fmtKm(s.km)} km parcourus · ${esc(ago(s.last))}</span>`;
   $("btn-replay").disabled = T.entries.length < 2;
 }
 function renderDays(){
@@ -638,7 +660,7 @@ function stopRow(g){
   const second = ph.find(x => x.thumbUrl !== g.cover);
   return `<li class="stop ${g.id===T.active?"active":""}">${isEditor ? `<button type="button" class="rowedit" data-edit="${esc(g.id)}" aria-label="Modifier l'étape">${PEN}</button>` : ""}
     <button type="button" data-open="${esc(g.id)}">
-      <span class="thumbstack">${ph.length ? `<img src="${esc(g.cover)}" alt="" loading="lazy">${second?`<img src="${esc(second.thumbUrl)}" alt="" loading="lazy">`:""}${ph.length>1?`<b>${ph.length}</b>`:""}` : `<span class="ph">${pinSvg}</span>`}</span>
+      <span class="thumbstack">${ph.length ? `<img src="${esc(g.cover)}" alt="" loading="lazy">${second?`<img src="${esc(second.thumbUrl)}" alt="" loading="lazy">`:""}${ph.length>1?`<b>${ph.length}</b>`:""}${g.items.some(x => x.video) ? '<i class="vmark"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></i>' : ""}` : `<span class="ph">${pinSvg}</span>`}</span>
       <span class="txt"><span class="when">${esc(t1)}${t2!==t1?` – ${esc(t2)}`:""}${g.tag ? `<span class="flag">${esc(g.tag)}</span>` : ""}</span>
       <span class="place">${esc(g.place || "Étape")}${g.approx?'<span class="tag">position estimée</span>':""}</span>
       ${g.caption ? `<span class="cap">${esc(g.caption)}</span>` : ""}</span>
@@ -653,7 +675,7 @@ function legRow(l){
     <button type="button" data-open="${esc(l.id)}" ${l.items.length ? "" : 'data-fly="1"'}>
       <span class="modeico">${modeIcon(l.mode)}</span>
       <span class="txt"><span class="leg-title">${esc(l.label)}${l.hidden ? ' <span class="tag">masqué</span>' : ""}</span><span class="when">${esc(meta)}</span>${l.caption ? `<span class="cap">${esc(l.caption)}</span>` : ""}
-      ${ph.length ? `<span class="film">${ph.map(x => `<img src="${esc(x.thumbUrl)}" alt="" loading="lazy">`).join("")}</span>` : ""}</span>
+      ${ph.length ? `<span class="film">${ph.map(x => `<span class="fi"><img src="${esc(x.thumbUrl)}" alt="" loading="lazy">${vbadge(x)}</span>`).join("")}</span>` : ""}</span>
     </button></li>`;
 }
 function renderGallery(el){
@@ -661,7 +683,7 @@ function renderGallery(el){
     const its = l.flatMap(e => e.items.filter(x => x.thumbUrl));
     if (!its.length) return "";
     return `<section class="day" style="--dc:${dc(d)}"><div class="day-head"><h2>${dayName(d)}</h2><span>${esc(T.F.dayLabel.format(dayDate(d)))} · ${its.length} photo${its.length>1?"s":""}</span></div>
-      <div class="gallery">${its.map(x => `<button type="button" data-photo="${esc(x.id)}" aria-label="Ouvrir la photo"><img src="${esc(x.thumbUrl)}" alt="" loading="lazy"></button>`).join("")}</div></section>`;
+      <div class="gallery">${its.map(x => `<button type="button" data-photo="${esc(x.id)}" aria-label="${x.video ? "Lire la vidéo" : "Ouvrir la photo"}"><img src="${esc(x.thumbUrl)}" alt="" loading="lazy">${vbadge(x)}</button>`).join("")}</div></section>`;
   }).join("");
 }
 
@@ -673,7 +695,7 @@ function renderMap(fit){
   stops.forEach(g => {
     const ph = g.items.filter(x => x.thumbUrl).length;
     const cls = ["pin", ph>1?"stack":"", g.approx?"approx":"", last&&g.id===last.id?"latest":"", g.id===T.active?"active":""].join(" ");
-    const html = `<div class="${cls}" style="--dc:${dc(g.day)}"><div class="card">${g.cover?`<img src="${esc(g.cover)}" alt="">`:`<div class="noimg">${pinSvg}</div>`}</div><span class="num">${g.n}</span>${ph>1?`<span class="count">${ph}</span>`:""}${g.tag?`<span class="pinflag">${esc(g.tag)}</span>`:""}</div>`;
+    const html = `<div class="${cls}" style="--dc:${dc(g.day)}"><div class="card">${g.cover?`<img src="${esc(g.cover)}" alt="">`:`<div class="noimg">${pinSvg}</div>`}${g.items.some(x => x.video) ? '<span class="pinplay"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>' : ""}</div><span class="num">${g.n}</span>${ph>1?`<span class="count">${ph}</span>`:""}${g.tag?`<span class="pinflag">${esc(g.tag)}</span>`:""}</div>`;
     const m = L.marker([g.lat,g.lng], {icon:L.divIcon({className:"stop-pin", html, iconSize:[0,0]}), title:g.place||"Étape", zIndexOffset:g.n*10 + (g.id===T.active?5000:0), riseOnHover:true});
     m.on("click", () => !picking && openEntry(g.id));
     m.addTo(T.layers.pins);
@@ -774,12 +796,14 @@ function drawLb(){
   $("lb-card").style.setProperty("--dc", dc(e.day));
   const many = T.flat.length > 1;
   $("lb-img").hidden = !it.hasPhoto;
-  $("lb-img").innerHTML = it.hasPhoto ? `<img src="${esc(it.thumbUrl || "")}" alt="${esc(it.caption||e.place||"Photo du voyage")}" draggable="false">
+  $("lb-img").innerHTML = it.hasPhoto ? (it.video
+    ? `<video class="lb-media" src="${esc(it.video.url)}" poster="${esc(it.thumbUrl || "")}" controls playsinline preload="metadata"></video>`
+    : `<img class="lb-media" src="${esc(it.thumbUrl || "")}" alt="${esc(it.caption||e.place||"Photo du voyage")}" draggable="false">`) + `
     ${many?`<button class="arrow l" type="button" data-step="-1" aria-label="Photo précédente"${lbPos?"":" disabled"}>‹</button><button class="arrow r" type="button" data-step="1" aria-label="Photo suivante"${lbPos<T.flat.length-1?"":" disabled"}>›</button>`:""}
     <span class="lb-count">${lbPos+1} / ${T.flat.length}</span>` : "";
   if (it.hasPhoto){
     const tripId = T.id;
-    fullPhoto(tripId, it.id).then(url => { const im = $("lb-img").querySelector("img"); if (url && im && T.id === tripId && lbCurrentId() === it.id) im.src = url; });
+    fullPhoto(tripId, it.id).then(url => { const im = $("lb-img").querySelector(".lb-media"); if (url && im && T.id === tripId && lbCurrentId() === it.id){ if (it.video) im.poster = url; else im.src = url; } });
     [1, -1, 2].forEach(d => { const g = T.flat[lbPos + d]; const x = g?.e.items[g.i]; if (x?.hasPhoto) fullPhoto(tripId, x.id); });
   }
   $("lb-strip").hidden = e.items.length < 2;
@@ -794,7 +818,7 @@ function drawLb(){
   $("lb-prev").dataset.id = ents[i-1]?.id || ""; $("lb-next").dataset.id = ents[i+1]?.id || "";
   $("lb-editbtn").hidden = !isEditor;
 }
-function closeLb(){ $("lb").hidden = true; document.body.classList.remove("noscroll"); T.active = null; if (T.trip){ renderLog(); renderMap(false); } }
+function closeLb(){ $("lb").hidden = true; $("lb-img").innerHTML = ""; document.body.classList.remove("noscroll"); T.active = null; if (T.trip){ renderLog(); renderMap(false); } }
 $("lb-close").onclick = closeLb;
 $("lb").addEventListener("click", e => { if (e.target === $("lb")) closeLb(); });
 function stepLb(k){
@@ -846,6 +870,7 @@ async function deleteItems(items){
   const b = writeBatch(db);
   items.forEach(it => { b.delete(stopRef(it.id)); if (it.hasPhoto) b.delete(doc(db, `trips/${T.id}/photos/${it.id}`)); });
   await b.commit();
+  if (S3CFG) items.filter(it => it.video?.key).forEach(it => deleteFile(S3CFG, it.video.key));
 }
 $("lb-editbtn").onclick = () => {
   const { e, i } = lbCur(), it = e.items[i], isStop = e.kind === "stop";
@@ -1089,7 +1114,7 @@ function renderPlan(){
   el.innerHTML = plan.map(pl => {
     const { e, key, news } = pl, ed = planEdits[key] || {};
     const head = e.day !== lastDay ? `<div class="plan-day">${esc(T.F.dayLabel.format(new Date(pl.days[e.day] + "T12:00:00Z")))}</div>` : ""; lastDay = e.day;
-    const strip = `<div class="plan-strip">${news.slice(0, 8).map(x => `<img src="${x.thumbUrl}" alt="" loading="lazy">`).join("")}${news.length > 8 ? `<span>+${news.length - 8}</span>` : ""}</div>`;
+    const strip = `<div class="plan-strip">${news.slice(0, 8).map(x => x.thumbUrl ? `<span class="fi"><img src="${x.thumbUrl}" alt="" loading="lazy">${x._p.video ? vbadge({video: {duration: x._p.duration}}) : ""}</span>` : `<span>▶</span>`).join("")}${news.length > 8 ? `<span>+${news.length - 8}</span>` : ""}</div>`;
     const t1 = T.F.time.format(new Date(news[0].at)), t2 = T.F.time.format(new Date(news[news.length-1].at));
     if (e.kind === "leg"){
       const mode = ed.mode ?? "";
@@ -1135,6 +1160,8 @@ function renderAdd(){
     <div class="row"><b>${withG===n?"✓":miss?"!":"≈"}</b><span>Position lue dans ${withG===n?"toutes les photos":`${withG} sur ${n}`}${est?`, ${est} estimée${est>1?"s":""} (avant/après, vol)`:""}${miss?`, <b>${miss} sans lieu</b>`:""}.</span></div>
     ${act.some(p => p.stale) ? `<div class="row"><b>≈</b><span>${act.filter(p => p.stale).length} photo(s) au GPS périmé (téléphone sans signal) : placée(s) d'après le trajet.</span></div>` : ""}
     <div class="row"><b>↝</b><span>Rangement automatique : <b>${stops} étape${stops>1?"s":""}</b>${legs.length ? ` et <b>${legs.length} trajet${legs.length>1?"s":""}</b> dessiné${legs.length>1?"s":""} par les photos prises en route` : ""}. Vérifie les noms ci-dessous, tout reste modifiable ensuite.</span></div>
+    ${act.some(p => p.video) ? (S3CFG ? `<div class="row"><b>▶</b><span>${act.filter(p => p.video).length} vidéo(s), ${(act.filter(p => p.video).reduce((a, p) => a + p.file.size, 0) / 1e6).toFixed(0)} Mo à envoyer.</span></div>`
+      : `<div class="row"><b>!</b><span>${act.filter(p => p.video).length} vidéo(s) : le stockage des vidéos n'est pas encore configuré (Réglages du voyage > Vidéos). Les photos partent quand même.</span></div>`) : ""}
     ${dup ? `<div class="row"><b>⤼</b><span>${dup} photo${dup>1?"s":""} déjà publiée${dup>1?"s":""} : ignorée${dup>1?"s":""}.</span></div>` : ""}
     ${chosen?`<div class="row"><b>✓</b><span>Placées sur : ${esc(chosen.name || fmtCoord(chosen.lat,chosen.lng))}</span></div>`:""}`;
   $("where").hidden = !miss && !chosen;
@@ -1159,15 +1186,18 @@ $("f-photos").addEventListener("change", async e => {
   const isDup = dupChecker();
   const items = new Array(files.length);
   await pool(files, 4, async (f, k) => {
-    const m = await readMeta(f, T.tz); // sur l'original, avant toute compression
-    const preview = await makePreview(f);
+    const video = isVideoFile(f);
+    const m = video ? await readVideoMeta(f, T.tz) : await readMeta(f, T.tz); // sur l'original, avant toute compression
+    let preview = "";
+    if (video){ try { const im = await decodeVideoFrame(f); try { preview = URL.createObjectURL(await toJpeg(im, 240, .7)); m.duration ||= im.duration; } finally { im.done(); } } catch(_){ preview = ""; } }
+    else preview = await makePreview(f);
     const stale = m.gpsStale;
     const key = `${Math.round((m.at ?? f.lastModified) / 1000)}|${m.device || ""}|${f.size}|${f.name}`;
     const dup = isDup(m);
     items[k] = {file:f, preview, key, dup, metaLat: stale ? null : m.lat, metaLng: stale ? null : m.lng, stale, staleLat: stale ? m.lat : null, staleLng: stale ? m.lng : null,
-      gpsAt: m.gpsAt, metaAt: m.at, timeSrc: m.timeSrc, device: m.device};
+      gpsAt: m.gpsAt, metaAt: m.at, timeSrc: m.timeSrc, device: m.device, video, duration: m.duration || null, vw: m.width, vh: m.height};
     done++; bar.style.width = `${done / files.length * 100}%`;
-    $("summary").innerHTML = `<div class="row"><b>…</b><span>Lecture des photos : ${done} sur ${files.length}</span></div>`;
+    $("summary").innerHTML = `<div class="row"><b>…</b><span>Lecture : ${done} sur ${files.length}</span></div>`;
   });
   // Doublons à l'intérieur de la sélection
   const seen = new Set(); items.forEach(p => { if (seen.has(p.key)) p.dup = true; seen.add(p.key); });
@@ -1206,26 +1236,40 @@ $("add-form").addEventListener("submit", async e => {
   adding = true; $("add-submit").disabled = true; $("add-cancel").disabled = true; $("progress").hidden = false;
   let lock = null; try { lock = await navigator.wakeLock?.request("screen"); } catch(_){}
   let done = 0, failed = 0, fatal = null;
+  const vids = new Map();
   const tick = () => {
     const left = todo.length - done - failed, per = (Date.now() - t0) / Math.max(1, done);
-    bar.style.width = `${(done + failed) / todo.length * 100}%`;
-    addMsg(`Envoi : ${done} sur ${todo.length}${left && done ? ` · environ ${Math.max(1, Math.round(left * per / 60000))} min restante${left * per > 90000 ? "s" : ""}` : ""}. Garde l'écran allumé.`);
+    const partial = [...vids.values()].reduce((a, b) => a + b, 0);
+    bar.style.width = `${(done + failed + partial) / todo.length * 100}%`;
+    const v = vids.size ? ` · vidéo ${Math.round(Math.max(...vids.values()) * 100)} %` : "";
+    addMsg(`Envoi : ${done} sur ${todo.length}${v}${left && done && !vids.size ? ` · environ ${Math.max(1, Math.round(left * per / 60000))} min restante${left * per > 90000 ? "s" : ""}` : ""}. Garde l'écran allumé.`);
   };
   tick();
   await pool(todo, 2, async p => {
     if (fatal) return;
     try {
       const id = doc(collection(db, `trips/${tripId}/stops`)).id;
-      const im = await decodeImage(p.file);
+      if (p.video && !S3CFG) throw Object.assign(new Error("novideo"), { novideo: true });
+      const im = p.video ? await decodeVideoFrame(p.file) : await decodeImage(p.file);
       let big, small;
       try { big = await jpegUnder(im, 1600, 950000); small = await jpegUnder(im, 400, 60000, .78); } finally { im.done(); }
+      // La vidéo elle-même part sur Backblaze (en morceaux, avec reprise) ; son affiche reste dans Firestore.
+      let video = null;
+      if (p.video){
+        const ext = (/\.([a-z0-9]{2,4})$/i.exec(p.file.name)?.[1] || "mp4").toLowerCase(), rnd = [...crypto.getRandomValues(new Uint8Array(12))].map(x => x.toString(16).padStart(2, "0")).join("");
+        const key = `voyages/${tripId}/${id}-${rnd}.${ext}`, type = p.file.type || (ext === "mov" ? "video/quicktime" : "video/mp4");
+        vids.set(p, 0);
+        await putFile(S3CFG, key, p.file, { contentType: type, onProgress: b => { vids.set(p, b / p.file.size); tick(); } });
+        vids.delete(p);
+        video = { url: publicUrl(S3CFG, key), key, type, size: p.file.size, duration: p.duration || null, w: p.vw || im.w, h: p.vh || im.h };
+      }
       const inf = info.get(p) || {};
       const place = inf.place || (chosen && !p.metaLat ? chosen.name : "") || p.estPlace || packPlace(T.pack, p.lat, p.lng)
         || (p.inFlight ? "" : await reverseGeocode(p.lat, p.lng));
       const docData = { lat:p.lat, lng:p.lng, at:p.at, created:Date.now(), place, caption: inf.caption || inf.captionOld || "",
         thumb: await toBytes(small), hasPhoto: true, approxPos: !!p.approxPos, approxTime: !!p.approxTime, device: p.device || "",
         by: user.uid, byName: user.displayName || user.email || "", ...(p.gpsAt ? {gpsAt: p.gpsAt} : {}), ...(p.stale ? {gpsStale: true} : {}),
-        ...(p.inFlight ? {moving: true} : {}), ...(inf.arriveBy ? {arriveBy: inf.arriveBy} : {}) };
+        ...(p.inFlight ? {moving: true} : {}), ...(inf.arriveBy ? {arriveBy: inf.arriveBy} : {}), ...(video ? {video} : {}) };
       // La photo et l'étape sont écrites ensemble : tout ou rien.
       const b = writeBatch(db);
       b.set(doc(db, `trips/${tripId}/photos/${id}`), { data: await toBytes(big) });
@@ -1235,14 +1279,16 @@ $("add-form").addEventListener("submit", async e => {
       p.sent = true; done++;
     } catch(err){
       failed++;
-      if (err?.message === "format") p.badFormat = true;
+      vids.delete(p);
+      if (err?.novideo) p.noVideoStore = true;
+      else if (err?.message === "format") p.badFormat = true;
       else if (["resource-exhausted", "permission-denied", "unauthenticated"].includes(err?.code)) fatal = err.code;
     }
     tick();
   });
   try { await lock?.release(); } catch(_){}
   adding = false; $("add-cancel").disabled = false;
-  const bad = todo.filter(p => p.badFormat).length, rest = todo.filter(p => !p.sent).length;
+  const bad = todo.filter(p => p.badFormat).length, rest = todo.filter(p => !p.sent).length, novid = todo.filter(p => p.noVideoStore).length;
   if (!rest){
     bar.style.width = "100%"; closeAdd(); T.filterDay = null;
     toast(done > 1 ? `${done} photos publiées` : "Photo publiée");
@@ -1250,7 +1296,8 @@ $("add-form").addEventListener("submit", async e => {
   }
   pending = pending.filter(p => !p.sent || p.dup);
   renderAdd();
-  addMsg(fatal === "resource-exhausted" ? `${done} photos publiées. Le quota gratuit de Firebase est atteint pour aujourd'hui : réessaie demain pour les ${rest} autres.`
+  addMsg(novid && novid === rest ? `${done} publiée${done>1?"s":""}. ${novid} vidéo${novid>1?"s":""} en attente : le stockage des vidéos (Backblaze) n'est pas encore configuré dans les réglages.`
+    : fatal === "resource-exhausted" ? `${done} photos publiées. Le quota gratuit de Firebase est atteint pour aujourd'hui : réessaie demain pour les ${rest} autres.`
     : fatal ? "Envoi refusé : ce compte n'est pas éditeur, ou la connexion a expiré. Reconnecte-toi."
     : `${done} photo${done>1?"s":""} publiée${done>1?"s":""}. ${rest} n'ont pas pu être envoyée${rest>1?"s":""}${bad ? ` (dont ${bad} dans un format illisible ici)` : ""} : vérifie la connexion puis appuie sur « Reprendre l'envoi ».`, true);
   $("add-submit").textContent = "Reprendre l'envoi";
@@ -1311,23 +1358,23 @@ function showHero(){
 $("hero-play").onclick = () => { $("hero").hidden = true; startStory(); };
 $("hero-explore").onclick = () => { $("hero").hidden = true; };
 
-const S = { on:false, frames:[], k:0, playing:true, t:0, last:0, raf:0, entry:null, traveller:null, legT0:0 };
+const S = { on:false, sound:false, frames:[], k:0, playing:true, t:0, last:0, raf:0, entry:null, traveller:null, legT0:0 };
 function buildFrames(){
   const frames = [];
   // Les grosses étapes (des dizaines de photos) : une sélection répartie, les photos avec un petit mot d'abord.
   const pick = (its, n) => {
     if (its.length <= n) return its;
-    const keep = new Set(its.filter(x => x.caption).slice(0, n));
+    const keep = new Set([...its.filter(x => x.video).slice(0, 2), ...its.filter(x => x.caption)].slice(0, n));
     for (let k = 0; keep.size < n && k < n * 3; k++) keep.add(its[Math.round(k * (its.length - 1) / (n * 3 - 1))]);
     return its.filter(x => keep.has(x));
   };
   visibleEntries().forEach(e => {
     const its = pick(e.items.filter(x => x.hasPhoto), e.kind === "leg" ? 4 : 6);
     if (e.kind === "leg"){
-      if (its.length) its.forEach(it => frames.push({e, it, dur: 2800 + Math.min(2500, (it.caption || "").length * 35)}));
+      if (its.length) its.forEach(it => frames.push({e, it, dur: it.video ? Math.min(30, it.video.duration || 10) * 1000 + 400 : 2800 + Math.min(2500, (it.caption || "").length * 35)}));
       else frames.push({e, it:null, dur: e.mode === "plane" ? 4500 : Math.min(4000, 1800 + e.km * 80)});
     } else if (its.length){
-      its.forEach((it, i) => frames.push({e, it, dur: 3200 + (i === 0 && e.caption ? Math.min(3500, e.caption.length * 40) : 0)}));
+      its.forEach((it, i) => frames.push({e, it, dur: it.video ? Math.min(30, it.video.duration || 10) * 1000 + 400 : 3200 + (i === 0 && e.caption ? Math.min(3500, e.caption.length * 40) : 0)}));
     } else frames.push({e, it:null, dur: 3200 + Math.min(3500, (e.caption || "").length * 40)});
   });
   // Pour animer le trajet : position de chaque image dans son trajet
@@ -1358,12 +1405,14 @@ function stopStory(silent){
   if (!S.on) return;
   S.on = false; cancelAnimationFrame(S.raf);
   T.layers?.story.clearLayers(); S.traveller = null;
-  $("story").hidden = true; document.body.classList.remove("storying");
+  $("story").hidden = true; document.body.classList.remove("storying"); $("st-media").innerHTML = "";
   $("btn-replay").querySelector("span").textContent = "Revivre le voyage";
   T.active = null;
   if (!silent){ setTimeout(() => { T.map?.invalidateSize(); render(true); }, 60); }
 }
-function storyToggle(){ S.playing = !S.playing; S.last = performance.now(); $("story").classList.toggle("paused", !S.playing); $("st-play").setAttribute("aria-label", S.playing ? "Pause" : "Lecture"); }
+function drawSound(){ const f = S.frames[S.k], isV = !!f?.it?.video; $("st-sound").hidden = !isV; $("st-sound").setAttribute("aria-pressed", String(!!S.sound)); $("st-sound").setAttribute("aria-label", S.sound ? "Couper le son" : "Activer le son"); }
+function storyToggle(){ const v = $("st-media").querySelector("video"); if (v){ S.playing ? v.pause() : v.play().catch(() => {}); }
+  S.playing = !S.playing; S.last = performance.now(); $("story").classList.toggle("paused", !S.playing); $("st-play").setAttribute("aria-label", S.playing ? "Pause" : "Lecture"); }
 function storyGo(k){
   if (k < 0) k = 0;
   if (k >= S.frames.length) k = S.frames.length - 1;
@@ -1411,19 +1460,30 @@ function drawStory(){
   $("st-cap").textContent = cap || (e.kind === "leg" ? [e.km >= 1 ? `${fmtKm(e.km)} km` : "", e.from && e.to ? fmtDur(e.to.at - e.from.end) : ""].filter(Boolean).join(" · ") : "");
   if (f.it){
     const tripId = T.id, it = f.it;
-    $("st-media").innerHTML = `<img class="kb k${S.k % 4}" src="${esc(it.thumbUrl || "")}" alt="" draggable="false" style="--kbdur:${(f.dur + 800) / 1000}s">`;
-    fullPhoto(tripId, it.id).then(u => { const im = $("st-media").querySelector("img"); if (u && im && S.on && S.frames[S.k]?.it === it) im.src = u; });
+    if (it.video){
+      $("st-media").innerHTML = `<video class="st-video" src="${esc(it.video.url)}" poster="${esc(it.thumbUrl || "")}" playsinline autoplay preload="auto"></video>`;
+      const vid = $("st-media").querySelector("video");
+      vid.muted = !S.sound; if (!S.playing) vid.pause(); else vid.play().catch(() => { vid.muted = true; S.sound = false; drawSound(); vid.play().catch(() => {}); });
+      vid.onended = () => { if (S.on && S.frames[S.k]?.it === it) storyGo(S.k + 1); };
+      fullPhoto(tripId, it.id).then(u => { if (u && vid.isConnected) vid.poster = u; });
+    } else {
+      $("st-media").innerHTML = `<img class="kb k${S.k % 4}" src="${esc(it.thumbUrl || "")}" alt="" draggable="false" style="--kbdur:${(f.dur + 800) / 1000}s">`;
+      fullPhoto(tripId, it.id).then(u => { const im = $("st-media").querySelector("img"); if (u && im && S.on && S.frames[S.k]?.it === it) im.src = u; });
+    }
   } else {
     $("st-media").innerHTML = `<div class="st-illu ${e.kind === "leg" ? "m-" + e.mode : ""}">${e.kind === "leg" ? modeIcon(e.mode) : pinSvg}</div>`;
   }
   $("st-bar").innerHTML = frames.map((x, i) => `<i class="${i < idx ? "done" : ""}"><b></b></i>`).join("");
   const ents = [...new Set(S.frames.filter(x => !x.end).map(x => x.e))];
   $("st-count").textContent = `${ents.indexOf(e) + 1} / ${ents.length}`;
+  drawSound();
 }
 function storyTick(now){
   if (!S.on) return;
   const f = S.frames[S.k];
-  if (S.playing && !f.end){ S.t += now - S.last; }
+  // Une vidéo qui charge encore ne fait pas avancer le temps.
+  const vid = f.it?.video ? $("st-media").querySelector("video") : null;
+  if (S.playing && !f.end && (!vid || (vid.readyState >= 3 && !vid.paused))){ S.t += now - S.last; }
   S.last = now;
   if (!f.end){
     const p = Math.min(1, S.t / f.dur);
@@ -1442,6 +1502,7 @@ function storyTick(now){
 $("btn-replay").onclick = () => S.on ? stopStory() : startStory();
 $("st-close").onclick = () => stopStory();
 $("st-play").onclick = storyToggle;
+$("st-sound").onclick = () => { S.sound = !S.sound; const v = $("st-media").querySelector("video"); if (v){ v.muted = !S.sound; if (S.playing) v.play().catch(() => {}); } drawSound(); };
 $("st-next").onclick = () => storyGo(S.k + 1);
 $("st-prev").onclick = () => storyGo(S.k - 1);
 $("st-media").addEventListener("click", e => {
@@ -1481,6 +1542,10 @@ async function renderAdmin(id, seq){
   $("a-share").value = shareLink(id);
   $("a-code-new").value = "";
   $("a-editors-panel").hidden = user?.email !== OWNER_EMAIL;
+  $("a-video-panel").hidden = user?.email !== OWNER_EMAIL;
+  const c = S3CFG || {};
+  $("v-endpoint").value = (c.scheme === "http" ? "http://" : "") + (c.endpoint || ""); $("v-bucket").value = c.bucket || ""; $("v-keyid").value = c.keyId || ""; $("v-appkey").value = c.appKey || ""; $("v-public").value = c.publicBase || "";
+  setMsg("v-msg", S3CFG ? "Stockage des vidéos configuré." : "", S3CFG ? "ok" : null);
   $("a-editors").value = editorEmails.join("\n") || OWNER_EMAIL;
   loadCodes(); loadMembers();
 }
@@ -1552,6 +1617,32 @@ $("a-kick").onclick = async () => {
     loadMembers();
   } catch(_){ setMsg("a-members-msg", "La déconnexion a échoué. Réessaie.", "err"); }
   $("a-kick").disabled = false;
+};
+/* ---------- Stockage des vidéos ---------- */
+function videoCfgFromForm(){
+  const raw = $("v-endpoint").value.trim(), scheme = /^http:\/\//.test(raw) ? "http" : "https";
+  const endpoint = raw.replace(/^https?:\/\//, "").replace(/\/.*$/, ""), bucket = $("v-bucket").value.trim();
+  const num = /-(\d{3})\.backblazeb2\.com$/.exec(endpoint)?.[1];
+  if (!$("v-public").value.trim() && num && bucket) $("v-public").value = `https://f${num}.backblazeb2.com/file/${bucket}`;
+  return { endpoint, scheme, bucket, region: regionOf(endpoint), keyId: $("v-keyid").value.trim(), appKey: $("v-appkey").value.trim(), publicBase: $("v-public").value.trim().replace(/\/$/, "") };
+}
+["v-endpoint", "v-bucket"].forEach(id => $(id).addEventListener("change", videoCfgFromForm));
+$("v-test").onclick = async () => {
+  const cfg = videoCfgFromForm();
+  if (!cfg.endpoint || !cfg.bucket || !cfg.keyId || !cfg.appKey || !cfg.publicBase) return setMsg("v-msg", "Remplis tous les champs.", "err");
+  setMsg("v-msg", "Test en cours…");
+  const key = `voyages/_test/${Date.now()}.txt`, body = new Blob(["Voyage interactif : test"], {type: "text/plain"});
+  try { await putFile(cfg, key, body, { contentType: "text/plain" }); }
+  catch(e){ return setMsg("v-msg", e.status === 403 ? "Envoi refusé : vérifie keyID, applicationKey et le nom du seau." : `Envoi impossible (${e.status || "CORS ou réseau"}). Il faut une règle CORS sur le seau autorisant ce site (PUT, POST, GET, DELETE, en-tête ETag exposé).`, "err"); }
+  try { const r = await fetch(publicUrl(cfg, key)); if (!r.ok) throw new Error(r.status); }
+  catch(e){ deleteFile(cfg, key); return setMsg("v-msg", "Envoi réussi, mais le fichier n'est pas lisible publiquement : le seau doit être « Public » et l'adresse publique correcte.", "err"); }
+  await deleteFile(cfg, key);
+  setMsg("v-msg", "Tout fonctionne : envoi, lecture et suppression. Tu peux enregistrer.", "ok");
+};
+$("v-save").onclick = async () => {
+  const cfg = videoCfgFromForm();
+  try { await setDoc(doc(db, "config/storage"), cfg); S3CFG = cfg.keyId ? cfg : null; setMsg("v-msg", "Réglages des vidéos enregistrés.", "ok"); }
+  catch(_){ setMsg("v-msg", "L'enregistrement a échoué.", "err"); }
 };
 $("a-editors-save").onclick = async () => {
   const emails = [...new Set($("a-editors").value.split(/[\s,;]+/).map(s => s.trim().toLowerCase()).filter(s => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s)))];

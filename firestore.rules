@@ -30,6 +30,12 @@ service cloud.firestore {
       allow write: if viIsOwner();
     }
 
+    // Réglages du stockage des vidéos (clé Backblaze) : jamais lisibles par les visiteurs.
+    match /config/storage {
+      allow read: if viIsEditor();
+      allow write: if viIsOwner();
+    }
+
     match /trips/{tripId} {
       allow get: if viIsMember(tripId) || viIsEditor();
       allow list: if viIsEditor();
