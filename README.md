@@ -36,8 +36,20 @@ Avec la CLI : `npx firebase deploy --only firestore:rules` (après avoir mis l'i
 | `trips/{id}/members/{uid}` | `{ code, joinedAt }`, créé par le visiteur avec le bon code |
 | `config/editors` | `{ emails: [...] }`, modifiable par le propriétaire depuis les réglages |
 
+## Le récit du voyage
+
+- Les photos sont regroupées en **étapes** (même jour, moins de 75 min et 600 m d'écart) reliées par des **trajets**.
+- Une photo prise **en route** ne crée pas d'étape : sur l'eau (ferry), dans l'avion (entre deux photos éloignées, à plus de 200 km/h) ou en roulant. Elle dessine le trajet et apparaît en petite vignette ronde sur la carte.
+- Mode du trajet deviné automatiquement : avion, bateau (photos sur l'eau, ou traversée sans photo), voiture, à pied. L'éditeur peut l'imposer (« Arrivé ici en… »), forcer une photo en « prise en route » ou en arrêt, et poser une étiquette (Départ, Arrivée, Hôtel…).
+- Étiquettes automatiques : **Départ** et **Retour** pour les étapes hors du pays du voyage, **Arrivée** après le vol aller ; vols « aller » et « retour ».
+- Une photo sans position prise entre deux photos éloignées (dans l'avion) est placée sur la ligne entre les deux.
+- **Lieu sans photo** (bouton dans le carnet) : la maison au départ, l'aéroport…, trouvé par recherche ou en touchant la carte.
+
+Pour les proches : écran d'accueil du voyage, **Revivre le voyage** (la carte suit le parcours, l'avion et le bateau avancent, les photos défilent en diaporama), visionneuse plein écran qui enchaîne toutes les photos du voyage au doigt, onglet **Photos** (galerie par jour), message quand une nouvelle photo arrive.
+
 ## Pays et packs
 
+- Fond du monde (aller-retour) : `data/world-land.geojson`, Natural Earth 1:50m (domaine public), simplifié.
 - Le contour du pays vient de `data/{ISO3}.geojson` s'il existe, sinon de l'API geoBoundaries (mis en cache sur l'appareil). Pour l'ajouter au dépôt : `node tools/fetch-boundary.mjs FRA`.
 - Un « pack » ajoute lieux connus, pictogrammes, ferries et étiquettes : voir `packs/MLT.js`, à déclarer dans `packs/index.js`.
 - Sans lieu connu à proximité, le nom vient de Nominatim (OpenStreetMap), 1 requête par seconde au plus, puis il est enregistré dans la photo.
@@ -46,7 +58,7 @@ Avec la CLI : `npx firebase deploy --only firestore:rules` (après avoir mis l'i
 
 ```sh
 npm install
-npm test                 # lecteur EXIF (JPEG générés par Pillow) + heures autour du 25/10/2026
+npm test                 # lecteur EXIF, heures autour du 25/10/2026, étapes et trajets
 npm run test:rules       # règles Firestore avec l'émulateur (Java requis)
 python3 tests/make_jpegs.py   # régénère les JPEG de test
 # Parcours complet dans Chromium (Playwright requis) :

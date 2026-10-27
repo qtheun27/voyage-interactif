@@ -8,7 +8,7 @@ export const firebaseConfig = {
   messagingSenderId: "5495261177",
   appId: "1:5495261177:web:d5368d4b9241e5637c9f28"
 };
-/* Éditeur principal (doit être identique à celui écrit dans firestore.rules et storage.rules). */
+/* Éditeur principal (doit être identique à celui écrit dans firestore.rules). */
 export const OWNER_EMAIL = "q.theuninck@gmail.com";
 /* Prénom affiché dans le message d'erreur du code. */
 export const OWNER_NAME = "Quentin";
