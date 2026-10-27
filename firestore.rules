@@ -1,0 +1,62 @@
+rules_version = '2';
+// Voyage interactif : tout est sous trips/… et config/editors.
+// Si ce fichier est fusionné avec des règles existantes, copier seulement le contenu
+// entre « DÉBUT VOYAGE INTERACTIF » et « FIN VOYAGE INTERACTIF » dans le bloc
+// match /databases/{database}/documents existant.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===== DÉBUT VOYAGE INTERACTIF =====
+    function viSignedInWithGoogle() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.email_verified == true;
+    }
+    function viIsOwner() {
+      return viSignedInWithGoogle() && request.auth.token.email == 'q.theuninck@gmail.com';
+    }
+    function viIsEditor() {
+      return viIsOwner()
+        || (viSignedInWithGoogle()
+            && request.auth.token.email in get(/databases/$(database)/documents/config/editors).data.emails);
+    }
+    function viIsMember(tripId) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/trips/$(tripId)/members/$(request.auth.uid));
+    }
+
+    match /config/editors {
+      allow read: if viIsEditor();
+      allow write: if viIsOwner();
+    }
+
+    match /trips/{tripId} {
+      allow get: if viIsMember(tripId) || viIsEditor();
+      allow list: if viIsEditor();
+      allow write: if viIsEditor();
+
+      match /stops/{stopId} {
+        allow read: if viIsMember(tripId) || viIsEditor();
+        allow write: if viIsEditor();
+      }
+
+      // L'id du document est le code d'accès : jamais lisible ni listable par les visiteurs.
+      match /codes/{code} {
+        allow read: if viIsEditor();
+        allow write: if viIsEditor();
+      }
+
+      match /members/{uid} {
+        allow create: if request.auth != null
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['code', 'joinedAt'])
+          && request.resource.data.code is string
+          && request.resource.data.code.matches('^[A-Z0-9-]{4,40}$')
+          && exists(/databases/$(database)/documents/trips/$(tripId)/codes/$(request.resource.data.code));
+        allow get: if request.auth != null && request.auth.uid == uid;
+        allow read, delete: if viIsEditor();
+      }
+    }
+    // ===== FIN VOYAGE INTERACTIF =====
+  }
+}

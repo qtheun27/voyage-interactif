@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Voyage interactif</title>
+<meta name="description" content="Carnets de voyage illustrés, suivis en direct par les proches.">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#10212a" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Voyage">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Figtree:ital,wght@0,400;0,500;0,600;0,700;1,500&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="boot" id="boot"><span class="spinner" aria-hidden="true"></span><span id="boot-text">Chargement…</span></div>
+
+<!-- ============ Accueil ============ -->
+<section class="screen" id="screen-home" hidden>
+  <header class="top">
+    <div class="brand">
+      <h1>Voyage interactif</h1>
+      <div class="status" id="home-sub">Nos carnets de voyage, en direct</div>
+    </div>
+    <div class="account" id="home-account"></div>
+  </header>
+  <main class="home">
+    <div class="home-actions" id="home-editor-actions" hidden>
+      <button class="btn primary" type="button" id="btn-newtrip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        Nouveau voyage
+      </button>
+    </div>
+    <div class="tcards" id="home-cards"></div>
+    <form class="join" id="join-form" novalidate>
+      <label class="f" for="join-input">J'ai un lien ou un code
+        <small>Colle le lien reçu par message (ou le nom du voyage, par exemple malte-2026). Le code se tape à l'étape suivante.</small>
+      </label>
+      <div class="join-row">
+        <input type="text" id="join-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://…/#/v/malte-2026">
+        <button class="btn primary" type="submit">Continuer</button>
+      </div>
+      <div class="msg err" id="join-msg" hidden></div>
+    </form>
+  </main>
+</section>
+
+<!-- ============ Accès avec code ============ -->
+<section class="screen gate" id="screen-gate" hidden>
+  <form class="gate-card" id="gate-form" novalidate>
+    <svg class="gate-mark" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="27" fill="none" stroke="var(--sea-label)" stroke-width="1" stroke-dasharray="2 3"/><path d="M30 6 L36 30 L30 54 L24 30 Z" fill="var(--panel)" stroke="var(--sea-label)" stroke-width="1.2"/><path d="M30 6 L36 30 L24 30 Z" fill="var(--accent)"/><path d="M6 30 L30 26 L54 30 L30 34 Z" fill="var(--panel)" stroke="var(--sea-label)" stroke-width="1"/></svg>
+    <h1>Voyage interactif</h1>
+    <p class="muted">Ce carnet est privé. Entre le code du voyage pour le suivre.</p>
+    <label class="f">Code du voyage
+      <input type="text" id="gate-code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40" required>
+    </label>
+    <div class="msg err" id="gate-msg" hidden></div>
+    <button class="btn primary big" type="submit" id="gate-submit">Entrer</button>
+    <div class="gate-links">
+      <a href="#/">Mes voyages</a>
+      <button type="button" class="linkbtn" data-action="editor-signin">Je suis éditeur</button>
+    </div>
+  </form>
+</section>
+
+<!-- ============ Voyage : carte et carnet ============ -->
+<section class="screen app" id="screen-trip" hidden>
+  <header class="top">
+    <a class="back" href="#/" aria-label="Tous les voyages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a>
+    <div class="brand">
+      <h1 id="trip-title">Voyage</h1>
+      <div class="status" id="status"><span class="pill calm">Chargement</span></div>
+    </div>
+    <div class="top-actions">
+      <button class="btn" id="btn-streets" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg>
+        <span>Plan des rues</span>
+      </button>
+      <button class="btn" id="btn-replay" type="button" disabled>
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+        <span>Rejouer le parcours</span>
+      </button>
+      <a class="btn" id="btn-admin" href="#" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        <span>Réglages</span>
+      </a>
+    </div>
+  </header>
+  <div class="main">
+    <div class="mapwrap" id="mapwrap">
+      <div id="map" aria-label="Carte du voyage"></div>
+      <div class="compass" aria-hidden="true"><svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="27" fill="none" stroke="var(--sea-label)" stroke-width="1" stroke-dasharray="2 3"/><path d="M30 6 L36 30 L30 54 L24 30 Z" fill="var(--panel)" stroke="var(--sea-label)" stroke-width="1.2"/><path d="M30 6 L36 30 L24 30 Z" fill="var(--accent)"/><path d="M6 30 L30 26 L54 30 L30 34 Z" fill="var(--panel)" stroke="var(--sea-label)" stroke-width="1"/><text x="30" y="5.5" text-anchor="middle" font-size="7" font-family="JetBrains Mono, monospace" fill="var(--fg)" font-weight="600">N</text></svg></div>
+      <div class="map-note" id="map-note" hidden></div>
+      <div class="pickbar" id="pickbar" hidden><span id="pick-text">Touche la carte à l'endroit de l'étape</span><button type="button" id="pick-cancel">Annuler</button></div>
+      <div class="replay-card" id="replay-card" hidden></div>
+    </div>
+    <aside class="log">
+      <div class="days" id="days" role="toolbar" aria-label="Filtrer par jour"></div>
+      <div id="list"></div>
+    </aside>
+  </div>
+</section>
+
+<!-- ============ Réglages du voyage ============ -->
+<section class="screen" id="screen-admin" hidden>
+  <header class="top">
+    <a class="back" id="admin-back" href="#/" aria-label="Retour au voyage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a>
+    <div class="brand">
+      <h1>Réglages du voyage</h1>
+      <div class="status" id="admin-sub"></div>
+    </div>
+  </header>
+  <main class="admin">
+    <form class="panel" id="admin-form" novalidate>
+      <h2>Le voyage</h2>
+      <label class="f">Titre<input type="text" id="a-title" maxlength="80" required></label>
+      <label class="f">Sous-titre <small>Facultatif</small><input type="text" id="a-subtitle" maxlength="120"></label>
+      <div class="grid2">
+        <label class="f">Pays <small>Code ISO à 3 lettres</small><input type="text" id="a-country" maxlength="3" list="dl-countries" autocapitalize="characters"></label>
+        <label class="f">Fuseau horaire<input type="text" id="a-timezone" list="dl-timezones" autocapitalize="off" spellcheck="false"></label>
+        <label class="f">Début<input type="date" id="a-start"></label>
+        <label class="f">Fin<input type="date" id="a-end"></label>
+      </div>
+      <label class="f">Statut
+        <select id="a-status"><option value="en cours">En cours</option><option value="terminé">Terminé</option></select>
+      </label>
+      <div class="f">Couverture
+        <div class="cover-row">
+          <div class="cover-prev" id="a-cover-prev"></div>
+          <label class="btn">Choisir une photo<input type="file" id="a-cover" accept="image/*" class="visually-hidden"></label>
+        </div>
+      </div>
+      <div class="msg" id="a-msg" hidden></div>
+      <div class="sheet-actions"><button class="btn primary" type="submit" id="a-save">Enregistrer</button></div>
+    </form>
+
+    <section class="panel">
+      <h2>Partager</h2>
+      <p class="muted">Envoie ce lien, puis le code d'accès séparément. Le code n'est jamais dans le lien.</p>
+      <div class="join-row"><input type="text" id="a-share" readonly><button class="btn" type="button" id="a-copy">Copier</button></div>
+    </section>
+
+    <section class="panel">
+      <h2>Code d'accès</h2>
+      <p class="muted">Code actuel : <b class="code" id="a-code-current">—</b></p>
+      <label class="f">Nouveau code <small>Lettres, chiffres et tirets, 6 caractères minimum. Les visiteurs déjà entrés gardent leur accès.</small>
+        <div class="join-row"><input type="text" id="a-code-new" maxlength="40" autocapitalize="characters" spellcheck="false" autocomplete="off"><button class="btn" type="button" id="a-code-gen">Générer</button></div>
+      </label>
+      <div class="msg" id="a-code-msg" hidden></div>
+      <div class="sheet-actions"><button class="btn primary" type="button" id="a-code-save">Changer le code</button></div>
+    </section>
+
+    <section class="panel">
+      <h2>Visiteurs</h2>
+      <p class="muted" id="a-members">—</p>
+      <div class="msg" id="a-members-msg" hidden></div>
+      <div class="sheet-actions"><button class="btn danger" type="button" id="a-kick">Déconnecter tous les visiteurs</button></div>
+    </section>
+
+    <section class="panel" id="a-editors-panel" hidden>
+      <h2>Éditeurs</h2>
+      <p class="muted">Adresses Google qui peuvent ajouter des photos et gérer tous les voyages. Une par ligne.</p>
+      <textarea id="a-editors" rows="3" spellcheck="false"></textarea>
+      <div class="msg" id="a-editors-msg" hidden></div>
+      <div class="sheet-actions"><button class="btn" type="button" id="a-editors-save">Enregistrer les éditeurs</button></div>
+    </section>
+  </main>
+</section>
+
+<!-- ============ Ajouter des photos ============ -->
+<label class="fab" id="fab" hidden>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+  Ajouter des photos
+  <input type="file" id="f-photos" accept="image/*" multiple>
+</label>
+
+<div class="overlay" id="add" hidden>
+  <form class="sheet" id="add-form" novalidate>
+    <div class="sheet-head">
+      <h3 id="add-title">Nouvelles photos</h3>
+      <button type="button" class="x" id="add-close" aria-label="Fermer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="thumbs" id="thumbs"></div>
+    <div class="summary" id="summary"></div>
+    <div class="where" id="where" hidden>
+      <div style="font-weight:600;font-size:.88rem" id="where-title">Où était-ce ?</div>
+      <div class="where-row">
+        <select id="f-place" aria-label="Choisir un lieu connu"><option value="">Choisir un lieu…</option></select>
+        <button type="button" class="btn" id="btn-pick">Toucher la carte</button>
+      </div>
+      <div class="coords" id="coords">Aucune position choisie</div>
+    </div>
+    <label class="f">Petit mot <small>Facultatif</small><textarea id="f-caption" maxlength="600" placeholder="Ce qu'on a vu, mangé, ressenti…"></textarea></label>
+    <details class="more" id="more">
+      <summary>Corriger le lieu ou l'heure</summary>
+      <label class="f">Nom du lieu <small id="name-hint">Trouvé automatiquement</small><input type="text" id="f-name" maxlength="80"></label>
+      <label class="f">Heure <small>Utilisée seulement pour les photos sans heure</small><input type="datetime-local" id="f-when"></label>
+      <button type="button" class="btn" id="btn-pick2">Placer toutes ces photos ailleurs sur la carte</button>
+    </details>
+    <div class="progress" id="progress" hidden><i></i></div>
+    <div class="msg" id="add-msg" hidden></div>
+    <div class="sheet-actions">
+      <button type="button" class="btn" id="add-cancel">Annuler</button>
+      <button type="submit" class="btn primary" id="add-submit">Publier</button>
+    </div>
+  </form>
+</div>
+
+<!-- ============ Nouveau voyage ============ -->
+<div class="overlay" id="newtrip" hidden>
+  <form class="sheet" id="nt-form" novalidate>
+    <div class="sheet-head">
+      <h3>Nouveau voyage</h3>
+      <button type="button" class="x" data-close="newtrip" aria-label="Fermer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <label class="f">Titre<input type="text" id="nt-title" maxlength="80" required placeholder="Notre voyage à…"></label>
+    <label class="f">Sous-titre <small>Facultatif</small><input type="text" id="nt-subtitle" maxlength="120"></label>
+    <div class="grid2">
+      <label class="f">Pays <small>Code ISO à 3 lettres</small><input type="text" id="nt-country" maxlength="3" list="dl-countries" autocapitalize="characters" required></label>
+      <label class="f">Fuseau horaire<input type="text" id="nt-timezone" list="dl-timezones" autocapitalize="off" spellcheck="false" required></label>
+      <label class="f">Début<input type="date" id="nt-start"></label>
+      <label class="f">Fin<input type="date" id="nt-end"></label>
+    </div>
+    <label class="f">Identifiant <small>Dans le lien : …/#/v/<b id="nt-id-echo">…</b></small><input type="text" id="nt-id" maxlength="40" autocapitalize="off" spellcheck="false" required></label>
+    <label class="f">Code d'accès <small>À donner aux proches, séparément du lien</small>
+      <div class="join-row"><input type="text" id="nt-code" maxlength="40" autocapitalize="characters" spellcheck="false" autocomplete="off" required><button class="btn" type="button" id="nt-gen">Générer</button></div>
+    </label>
+    <div class="msg" id="nt-msg" hidden></div>
+    <div class="sheet-actions">
+      <button type="button" class="btn" data-close="newtrip">Annuler</button>
+      <button type="submit" class="btn primary" id="nt-submit">Créer le voyage</button>
+    </div>
+  </form>
+</div>
+
+<!-- ============ Visionneuse ============ -->
+<div class="overlay lb" id="lb" hidden>
+  <div class="lb-card" id="lb-card" role="dialog" aria-modal="true" aria-labelledby="lb-title">
+    <div class="lb-img" id="lb-img"></div>
+    <div class="strip" id="lb-strip"></div>
+    <div class="lb-body">
+      <div class="when" id="lb-when"></div>
+      <h3 id="lb-title"></h3>
+      <p id="lb-cap"></p>
+      <div class="coords" id="lb-coords"></div>
+      <div class="byline" id="lb-by"></div>
+      <div class="edit" id="lb-edit" hidden>
+        <label class="f">Nom du lieu<input type="text" id="e-name" maxlength="80"></label>
+        <label class="f">Petit mot<textarea id="e-caption" maxlength="600"></textarea></label>
+        <label class="f">Heure de l'étape <small>Décale toutes les photos de l'étape</small><input type="datetime-local" id="e-when"></label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" type="button" id="e-move">Déplacer sur la carte</button>
+          <button class="btn danger" type="button" id="e-delphoto">Retirer cette photo</button>
+          <button class="btn danger" type="button" id="e-delstop">Supprimer l'étape</button>
+        </div>
+        <div class="msg" id="e-msg" hidden></div>
+        <div class="sheet-actions">
+          <button class="btn" type="button" id="e-cancel">Annuler</button>
+          <button class="btn primary" type="button" id="e-save">Enregistrer</button>
+        </div>
+      </div>
+      <div class="lb-nav" id="lb-nav">
+        <div>
+          <button class="btn" type="button" id="lb-prev">Étape précédente</button>
+          <button class="btn" type="button" id="lb-next">Étape suivante</button>
+        </div>
+        <div>
+          <button class="btn" type="button" id="lb-editbtn" hidden>Modifier</button>
+          <button class="btn primary" type="button" id="lb-close">Fermer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<datalist id="dl-countries"></datalist>
+<datalist id="dl-timezones"></datalist>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
