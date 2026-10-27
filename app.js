@@ -9,7 +9,7 @@ import { firebaseConfig, OWNER_EMAIL, OWNER_NAME, emulators } from "./firebase-c
 import { toLocalInput, fromLocalInput } from "./lib/time.js";
 import { readMeta } from "./lib/exif.js";
 import { km, curve, fmtCoord, packPlace, reverseGeocode, searchPlaces, autoPlace, loadCountry, loadWorld, makeLand } from "./lib/geo.js";
-import { buildJourney, estimatePosition, MODES } from "./lib/journey.js";
+import { buildJourney, estimatePosition, legField, MODES } from "./lib/journey.js";
 import { loadPack, ICONS } from "./packs/index.js";
 
 const $ = id => document.getElementById(id);
@@ -369,9 +369,10 @@ function makeFmts(tz){
 }
 function closeTrip(){
   T.unsubs.forEach(u => { try { u(); } catch(_){} }); T.unsubs = [];
+  clearTimeout(T.renderTimer);
   stopStory(true);
   if (T.map){ T.map.remove(); T.map = null; }
-  ["lb","add","place","hero"].forEach(id => $(id).hidden = true);
+  ["lb","add","place","hero","legsheet"].forEach(id => $(id).hidden = true);
   Object.assign(T, { id:null, trip:null, photos:[], J:null, entries:[], flat:[], filterDay:null, active:null, loaded:false,
     autoNames:{}, streetsOn:false, overview:false, mine:new Set() });
 }
@@ -411,13 +412,18 @@ async function openTrip(id, seq, force){
     T.photos = snap.docs.map(s => { const d = s.data(); return {id:s.id, ...d, thumbUrl: imgUrl("thumb:" + s.id, d.thumb), hasPhoto: !!d.hasPhoto}; })
       .filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng) && Number.isFinite(s.at));
     T.loaded = true;
-    const keepPhoto = lbCurrentId();
-    render(first);
-    if (first) maybeHero();
-    if (added.length) announce(added);
-    if (!$("lb").hidden && keepPhoto){ const k = T.flat.findIndex(f => f.e.items[f.i].id === keepPhoto); if (k < 0) closeLb(); else { lbPos = k; if ($("lb-edit").hidden) drawLb(); } }
-    first = false;
-    fillMissingNames();
+    const after = () => {
+      const keepPhoto = lbCurrentId();
+      render(isFirst);
+      if (isFirst) maybeHero();
+      if (added.length) announce(added);
+      if (!$("lb").hidden && keepPhoto){ const k = T.flat.findIndex(f => f.e.items[f.i].id === keepPhoto); if (k < 0) closeLb(); else { lbPos = k; if ($("lb-edit").hidden) drawLb(); } }
+      fillMissingNames();
+    };
+    const isFirst = first; first = false;
+    // Pendant un gros envoi, les mises à jour arrivent par dizaines : on redessine au plus toutes les 0,6 s.
+    clearTimeout(T.renderTimer);
+    if (isFirst) after(); else T.renderTimer = setTimeout(after, adding ? 1500 : 250);
   }, err => {
     T.loaded = true; render(false);
     if (err?.code === "permission-denied") revoked(id);
@@ -528,10 +534,10 @@ const dayKey = t => T.F.dayKey.format(new Date(t));
 /* « Jour 3 » compte depuis la date de début du voyage (sinon depuis la première photo). */
 function dayNo(d){
   const key = T.J?.days[d]; const s = T.trip?.startDate;
-  if (key && s){ const n = Math.round((Date.parse(key) - Date.parse(s)) / 864e5) + 1; if (n >= 1 && n <= 90) return n; }
+  if (key && s){ const n = Math.round((Date.parse(key) - Date.parse(s)) / 864e5) + 1; if (n <= 90) return n; }
   return d + 1;
 }
-const dayName = d => `Jour ${dayNo(d)}`;
+const dayName = d => { const n = dayNo(d); return n >= 1 ? `Jour ${n}` : n === 0 ? "La veille" : "Avant le départ"; };
 const dayDate = d => new Date((T.J?.days[d] || "2000-01-01") + "T12:00:00Z");
 const visibleEntries = () => T.filterDay == null ? T.entries : T.entries.filter(e => e.day === T.filterDay);
 function byDay(list){ const m = new Map(); list.forEach(e => { if (!m.has(e.day)) m.set(e.day, []); m.get(e.day).push(e); }); return [...m.entries()]; }
@@ -543,6 +549,7 @@ const MODE_SVG = {
   car:'<svg viewBox="0 0 24 24"><path d="M5 16h14v-4l-2-5H7l-2 5z"/><circle cx="8" cy="17" r="2"/><circle cx="16" cy="17" r="2"/></svg>',
   bus:'<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="15" rx="2"/><path d="M5 11h14"/><circle cx="8.5" cy="15" r="1"/><circle cx="15.5" cy="15" r="1"/><path d="M7 18v2M17 18v2"/></svg>',
   train:'<svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="14" rx="3"/><path d="M6 11h12"/><circle cx="9" cy="14" r="1"/><circle cx="15" cy="14" r="1"/><path d="M8 21l2-4M16 21l-2-4"/></svg>',
+  bike:'<svg viewBox="0 0 24 24"><circle cx="6" cy="16" r="3.5"/><circle cx="18" cy="16" r="3.5"/><path d="M6 16l4-7h6l2 7M10 9l3 7h5M9 6h3"/></svg>',
   walk:'<svg viewBox="0 0 24 24"><circle cx="13" cy="4" r="2"/><path d="M10 21l2-6 3 3v3M9 12l2-4 4 2 2 3M11 8l-2 7"/></svg>'
 };
 const modeIcon = m => MODE_SVG[MODES[m]?.icon || "car"];
@@ -550,7 +557,7 @@ const modeIcon = m => MODE_SVG[MODES[m]?.icon || "car"];
 function render(fit){
   if (!T.trip || !T.land) return;
   T.J = buildJourney(T.photos, { dayKey, isWater: T.land.isWater, inCountry: T.land.inCountry, autoNames: T.autoNames, airport: T.pack?.airport });
-  T.entries = T.J.timeline.filter(e => e.kind === "stop" || e.notable);
+  T.entries = T.J.timeline.filter(e => e.kind === "stop" || e.notable || (isEditor && e.hidden));
   if (T.filterDay != null && T.filterDay >= T.J.days.length) T.filterDay = null;
   T.flat = visibleEntries().flatMap(e => e.items.map((_, i) => ({e, i})));
   renderStatus(); renderDays(); renderLog(); renderMap(fit);
@@ -629,7 +636,7 @@ function stopRow(g){
   const ph = g.items.filter(x => x.thumbUrl);
   const t1 = T.F.time.format(new Date(g.at)), t2 = T.F.time.format(new Date(g.end));
   const second = ph.find(x => x.thumbUrl !== g.cover);
-  return `<li class="stop ${g.id===T.active?"active":""}">
+  return `<li class="stop ${g.id===T.active?"active":""}">${isEditor ? `<button type="button" class="rowedit" data-edit="${esc(g.id)}" aria-label="Modifier l'étape">${PEN}</button>` : ""}
     <button type="button" data-open="${esc(g.id)}">
       <span class="thumbstack">${ph.length ? `<img src="${esc(g.cover)}" alt="" loading="lazy">${second?`<img src="${esc(second.thumbUrl)}" alt="" loading="lazy">`:""}${ph.length>1?`<b>${ph.length}</b>`:""}` : `<span class="ph">${pinSvg}</span>`}</span>
       <span class="txt"><span class="when">${esc(t1)}${t2!==t1?` – ${esc(t2)}`:""}${g.tag ? `<span class="flag">${esc(g.tag)}</span>` : ""}</span>
@@ -637,14 +644,15 @@ function stopRow(g){
       ${g.caption ? `<span class="cap">${esc(g.caption)}</span>` : ""}</span>
     </button></li>`;
 }
+const PEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>';
 function legRow(l){
   const ph = l.items.filter(x => x.thumbUrl).slice(0, 5);
   const dur = l.to && l.from ? fmtDur(l.to.at - l.from.end) : "";
   const meta = [l.km >= .5 ? `${fmtKm(l.km)} km` : "", l.mode === "plane" && dur ? dur : "", l.items.length ? `${l.items.length} photo${l.items.length>1?"s":""}` : ""].filter(Boolean).join(" · ");
-  return `<li class="leg m-${l.mode} ${l.id===T.active?"active":""}">
+  return `<li class="leg m-${l.mode} ${l.id===T.active?"active":""}${l.hidden?" is-hidden":""}">${isEditor ? `<button type="button" class="rowedit" data-legedit="${esc(l.id)}" aria-label="Modifier le trajet">${PEN}</button>` : ""}
     <button type="button" data-open="${esc(l.id)}" ${l.items.length ? "" : 'data-fly="1"'}>
       <span class="modeico">${modeIcon(l.mode)}</span>
-      <span class="txt"><span class="leg-title">${esc(l.label)}</span><span class="when">${esc(meta)}</span>
+      <span class="txt"><span class="leg-title">${esc(l.label)}${l.hidden ? ' <span class="tag">masqué</span>' : ""}</span><span class="when">${esc(meta)}</span>${l.caption ? `<span class="cap">${esc(l.caption)}</span>` : ""}
       ${ph.length ? `<span class="film">${ph.map(x => `<img src="${esc(x.thumbUrl)}" alt="" loading="lazy">`).join("")}</span>` : ""}</span>
     </button></li>`;
 }
@@ -699,13 +707,13 @@ function drawRoutes(legs){
     const active = l.id === T.active ? " active" : "";
     L.polyline(l.path, {className:"route-under", interactive:false}).addTo(T.layers.route);
     const line = L.polyline(l.path, {className:`route ${kind} d${(l.day % NDAY)+1}${active}`});
-    line.on("click", () => !picking && openEntry(l.id));
+    line.on("click", () => !picking && (isEditor ? openLegSheet(l.id) : openEntry(l.id)));
     line.addTo(T.layers.route);
     if (l.mode === "plane" || l.mode === "boat" || l.km > 3){
       const mid = Math.floor(l.path.length / 2), a = T.map.latLngToLayerPoint(l.path[Math.max(0, mid-1)]), b = T.map.latLngToLayerPoint(l.path[Math.min(l.path.length-1, mid+1)]);
       const rot = l.mode === "plane" ? Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI : 0;
       const m = L.marker(l.path[mid], {icon:L.divIcon({className:"stop-pin", html:`<div class="modepin m-${l.mode}" style="--dc:${dc(l.day)};--rot:${rot}deg" title="${esc(l.label)}">${modeIcon(l.mode)}</div>`, iconSize:[0,0]}), zIndexOffset:-100});
-      m.on("click", () => !picking && openEntry(l.id));
+      m.on("click", () => !picking && (isEditor ? openLegSheet(l.id) : l.items.length ? openEntry(l.id) : (T.active = l.id, flyToEntry(l), renderMap(false))));
       m.addTo(T.layers.route);
     }
   });
@@ -720,9 +728,12 @@ $("days").addEventListener("click", e => {
 });
 $("view-tabs").addEventListener("click", e => { const b = e.target.closest("[data-view]"); if (!b) return; T.view = b.dataset.view; renderLog(); });
 $("list").addEventListener("click", e => {
+  const le = e.target.closest("[data-legedit]"); if (le) return openLegSheet(le.dataset.legedit);
+  const se = e.target.closest("[data-edit]"); if (se){ openEntry(se.dataset.edit, true); $("lb-editbtn").click(); return; }
   const p = e.target.closest("[data-photo]"); if (p) return openPhoto(p.dataset.photo);
   const b = e.target.closest("[data-open]"); if (!b) return;
   const en = T.entries.find(x => x.id === b.dataset.open);
+  if (en && !en.items.length && isEditor && en.kind === "leg") return openLegSheet(en.id);
   if (en && !en.items.length){ T.active = en.id; flyToEntry(en); renderLog(); renderMap(false); $("mapwrap").scrollIntoView({behavior:"smooth", block:"start"}); return; }
   openEntry(b.dataset.open, true);
 });
@@ -815,6 +826,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape" && !$("hero").hidden){ $("hero").hidden = true; return; }
   if (e.key === "Escape" && !$("add").hidden && !$("add-submit").disabled){ closeAdd(); return; }
   if (e.key === "Escape" && !$("place").hidden){ $("place").hidden = true; return; }
+  if (e.key === "Escape" && !$("legsheet").hidden){ $("legsheet").hidden = true; return; }
   if (e.key === "Escape" && !$("newtrip").hidden){ $("newtrip").hidden = true; return; }
   if ($("lb").hidden || !$("lb-edit").hidden) return;
   if (e.key === "Escape") closeLb();
@@ -851,10 +863,63 @@ $("lb-editbtn").onclick = () => {
   $("e-delphoto").textContent = "Retirer cette photo";
   $("e-delstop").textContent = isStop ? "Supprimer l'étape" : "Supprimer les photos du trajet";
   $("e-delstop").hidden = !e.items.length;
+  const si = T.J.stops.indexOf(e), merged = isStop && e.items.some(x => x.joinPrev);
+  $("e-merge").hidden = !isStop || (si <= 0 && !merged);
+  $("e-merge").textContent = merged ? "Annuler la fusion" : "Fusionner avec l'étape précédente";
+  $("e-split").hidden = !isStop || i === 0;
+  $("e-legbtn").hidden = isStop ? !T.J.legs.some(l => l.to === e) : false;
   $("lb-edit").hidden = false; $("lb-nav").hidden = true;
   $("lb-edit").scrollIntoView({block:"nearest"});
 };
 $("e-cancel").onclick = () => { $("lb-edit").hidden = true; $("lb-nav").hidden = false; };
+$("e-merge").onclick = async () => {
+  const { e } = lbCur(), merged = e.items.some(x => x.joinPrev);
+  try { await updateEach(e.items, x => merged ? (x.joinPrev ? {joinPrev: false} : {}) : {joinPrev: true, splitHere: false});
+    $("lb-edit").hidden = true; $("lb-nav").hidden = false; toast(merged ? "Étapes séparées" : "Étape fusionnée avec la précédente"); }
+  catch(_){ setMsg("e-msg", "La modification a échoué. Réessaie.", "err"); }
+};
+$("e-split").onclick = async () => {
+  const { e, i } = lbCur();
+  try { await updateEach(e.items, (x, k) => x === e.items[i] ? {splitHere: true, joinPrev: false} : {});
+    $("lb-edit").hidden = true; $("lb-nav").hidden = false; toast("Nouvelle étape créée à partir de cette photo"); }
+  catch(_){ setMsg("e-msg", "La modification a échoué. Réessaie.", "err"); }
+};
+$("e-legbtn").onclick = () => {
+  const { e } = lbCur(), l = e.kind === "leg" ? e : T.J.legs.find(x => x.to === e);
+  if (l){ closeLb(); openLegSheet(l.id); }
+};
+
+/* ---------- Fiche d'un trajet : moyen de transport, nom, petit mot ---------- */
+let legEditing = null;
+function openLegSheet(id){
+  const l = T.J?.legs.find(x => x.id === id); if (!l) return;
+  legEditing = l;
+  const forced = legField(l, "arriveBy");
+  $("ls-modes").innerHTML = `<button type="button" data-mode="" aria-pressed="${!forced}"><span class="modeico">${modeIcon(l.mode)}</span><small>Auto</small></button>` +
+    Object.entries(MODES).map(([k, m]) => `<button type="button" data-mode="${k}" aria-pressed="${forced === k}"><span class="modeico m-${k}">${modeIcon(k)}</span><small>${esc(m.label.replace(/^En |^À /, ""))}</small></button>`).join("");
+  $("ls-from").textContent = [l.from?.place || (l.from ? "Étape" : ""), l.to?.place || (l.to ? "Étape" : "")].filter(Boolean).join(" → ") +
+    ` · ${l.km >= .5 ? fmtKm(l.km) + " km · " : ""}${l.items.length} photo${l.items.length>1?"s":""} en route`;
+  $("ls-label").value = legField(l, "legLabel"); $("ls-label").placeholder = l.auto || l.label;
+  $("ls-caption").value = legField(l, "legCaption");
+  $("ls-hidden").checked = l.hidden;
+  setMsg("ls-msg", "");
+  $("legsheet").hidden = false;
+}
+$("ls-modes").addEventListener("click", e => { const b = e.target.closest("[data-mode]"); if (!b) return; $("ls-modes").querySelectorAll("[data-mode]").forEach(x => x.setAttribute("aria-pressed", String(x === b))); });
+document.querySelectorAll('[data-close="legsheet"]').forEach(b => b.onclick = () => $("legsheet").hidden = true);
+$("ls-save").onclick = async () => {
+  const l = legEditing; if (!l) return;
+  const mode = $("ls-modes").querySelector('[aria-pressed="true"]')?.dataset.mode || "";
+  const vals = { arriveBy: mode, legLabel: $("ls-label").value.trim(), legCaption: $("ls-caption").value.trim(), legHidden: $("ls-hidden").checked };
+  // Les réglages vont sur la première photo de l'étape d'arrivée (sinon du trajet) ; on les retire des autres.
+  const all = [...(l.to?.items || []), ...l.items], holder = all[0];
+  $("ls-save").disabled = true; setMsg("ls-msg", "Enregistrement…");
+  try {
+    await updateEach(all, x => { const u = {}; Object.entries(vals).forEach(([k, v]) => { const want = x === holder ? v : (typeof v === "boolean" ? false : ""); if ((x[k] || (typeof v === "boolean" ? false : "")) !== want) u[k] = want; }); return u; });
+    $("legsheet").hidden = true; toast("Trajet modifié");
+  } catch(_){ setMsg("ls-msg", "L'enregistrement a échoué. Réessaie.", "err"); }
+  $("ls-save").disabled = false;
+};
 $("e-save").onclick = async () => {
   const { e, i } = lbCur(), it = e.items[i], isStop = e.kind === "stop";
   const name = $("e-name").value.trim(), cap = $("e-caption").value.trim(), t = fromLocalInput(T.tz, $("e-when").value);
@@ -947,14 +1012,41 @@ function placeSearch(input, list, onPick){
   });
 }
 
-/* ---------- Ajout de photos ---------- */
-let pending = [], chosen = null, nameReq = 0;
+/* ---------- Ajout de photos (une ou des centaines) ---------- */
+let pending = [], chosen = null, planEdits = {}, planAuto = {}, plan = [], adding = false;
 function addMsg(t, err){ setMsg("add-msg", t, err ? "err" : null); }
 function fillPlaceSelect(){
   const sel = $("f-place");
   sel.innerHTML = `<option value="">Lieu connu…</option>` + (T.pack?.places || []).map(([n],i) => `<option value="${i}">${esc(n)}</option>`).join("");
   sel.hidden = !T.pack?.places?.length;
 }
+/* Petite vignette (240 px) pour l'aperçu : légère même avec 200 photos. */
+async function makePreview(file){
+  try {
+    const b = await createImageBitmap(file, {resizeWidth: 240, resizeQuality: "medium", imageOrientation: "from-image"});
+    const c = document.createElement("canvas"); c.width = b.width; c.height = b.height;
+    c.getContext("2d").drawImage(b, 0, 0); b.close?.();
+    const blob = await new Promise(r => c.toBlob(r, "image/jpeg", .7));
+    if (blob) return URL.createObjectURL(blob);
+  } catch(_){}
+  return URL.createObjectURL(file);
+}
+/* Exécute fn sur chaque élément, n à la fois. */
+async function pool(list, n, fn){
+  let i = 0;
+  await Promise.all(Array.from({length: Math.min(n, list.length)}, async () => { while (i < list.length){ const k = i++; await fn(list[k], k); } }));
+}
+/* Déjà publiée ? Même appareil, même seconde, même endroit (ou position incertaine). */
+function dupChecker(){
+  const bySec = new Map();
+  T.photos.forEach(p => { if (!p.hasPhoto) return; const k = Math.round(p.at / 1000) + "|" + (p.device || ""); if (!bySec.has(k)) bySec.set(k, []); bySec.get(k).push(p); });
+  return m => {
+    if (m.at == null) return false;
+    const l = bySec.get(Math.round(m.at / 1000) + "|" + (m.device || ""));
+    return !!l && l.some(x => m.lat == null || m.gpsStale || x.gpsStale || x.approxPos || km(x, {lat: m.lat, lng: m.lng}) < .05);
+  };
+}
+
 function resolvePending(){
   // Heure : photo > GPS > heure choisie (estimée)
   const fallbackAt = fromLocalInput(T.tz, $("f-when").value) ?? Date.now();
@@ -973,100 +1065,167 @@ function resolvePending(){
     else { p.lat = null; p.lng = null; }
   });
 }
+/* Le plan : comment les nouvelles photos se rangent dans le récit (étapes, trajets), avant publication. */
+function buildPlan(){
+  const fresh = pending.filter(p => !p.dup && p.lat != null).map(p => ({ id: "new:" + p.key, lat: p.lat, lng: p.lng, at: p.at, hasPhoto: true,
+    thumbUrl: p.preview, approxPos: p.approxPos, moving: p.inFlight || undefined, place: "", caption: "", _p: p }));
+  const J = buildJourney([...T.photos, ...fresh], { dayKey, isWater: T.land.isWater, inCountry: T.land.inCountry, autoNames: T.autoNames, airport: T.pack?.airport });
+  plan = J.timeline.filter(e => e.items.some(x => x._p)).map(e => {
+    const news = e.items.filter(x => x._p), key = news[0].id, old = e.items.filter(x => !x._p);
+    return { e, key, news, old, day: e.day, days: J.days };
+  });
+}
+function planName(pl){
+  if (pl.e.kind !== "stop") return "";
+  if (pl.key in planEdits && planEdits[pl.key].name != null) return planEdits[pl.key].name;
+  if (pl.old.length) return pl.e.place;
+  const est = pl.news.find(x => x._p.estPlace)?._p.estPlace;
+  return est || planAuto[pl.key] || packPlace(T.pack, pl.e.lat, pl.e.lng) || "";
+}
+function renderPlan(){
+  const el = $("plan");
+  if (!plan.length){ el.innerHTML = ""; return; }
+  let lastDay = null;
+  el.innerHTML = plan.map(pl => {
+    const { e, key, news } = pl, ed = planEdits[key] || {};
+    const head = e.day !== lastDay ? `<div class="plan-day">${esc(T.F.dayLabel.format(new Date(pl.days[e.day] + "T12:00:00Z")))}</div>` : ""; lastDay = e.day;
+    const strip = `<div class="plan-strip">${news.slice(0, 8).map(x => `<img src="${x.thumbUrl}" alt="" loading="lazy">`).join("")}${news.length > 8 ? `<span>+${news.length - 8}</span>` : ""}</div>`;
+    const t1 = T.F.time.format(new Date(news[0].at)), t2 = T.F.time.format(new Date(news[news.length-1].at));
+    if (e.kind === "leg"){
+      const mode = ed.mode ?? "";
+      return `${head}<div class="plan-item leg m-${mode || e.mode}" data-key="${esc(key)}"><div class="plan-top"><span class="modeico">${modeIcon(mode || e.mode)}</span>
+        <div class="plan-txt"><b>${esc(mode ? MODES[mode].label : e.label)}</b><small>${esc(t1)}${t2 !== t1 ? " – " + esc(t2) : ""} · ${news.length} photo${news.length>1?"s":""} en route</small></div>
+        <select data-k="mode" aria-label="Moyen de transport"><option value="">Auto</option>${Object.entries(MODES).map(([k, m]) => `<option value="${k}"${k === mode ? " selected" : ""}>${esc(m.label.replace(/^En |^À /, ""))}</option>`).join("")}</select></div>${strip}</div>`;
+    }
+    const joined = pl.old.length ? `<small class="plan-join">Ajoutées à l'étape existante</small>` : "";
+    return `${head}<div class="plan-item stop" data-key="${esc(key)}"><div class="plan-top"><span class="plan-n">${news.length}</span>
+      <div class="plan-txt"><input type="text" data-k="name" value="${esc(planName(pl))}" placeholder="Nom de l'étape" maxlength="80" aria-label="Nom de l'étape"><small>${esc(t1)}${t2 !== t1 ? " – " + esc(t2) : ""}${news.some(x => x.approxPos) ? " · position estimée" : ""}</small>${joined}</div></div>
+      ${strip}<textarea data-k="caption" rows="1" maxlength="600" placeholder="Petit mot pour cette étape (facultatif)">${esc(ed.caption || "")}</textarea></div>`;
+  }).join("");
+}
+$("plan").addEventListener("input", e => {
+  const box = e.target.closest("[data-key]"), k = e.target.dataset.k; if (!box || !k) return;
+  const ed = planEdits[box.dataset.key] ??= {};
+  ed[k] = e.target.value;
+  if (k === "mode"){ renderAdd(); }
+});
+/* Noms automatiques des nouvelles étapes (pack, sinon OpenStreetMap, 1 requête/s). */
+let naming2 = 0;
+async function nameNewStops(){
+  const run = ++naming2;
+  for (const pl of plan){
+    if (run !== naming2 || $("add").hidden) return;
+    if (pl.e.kind !== "stop" || pl.old.length || pl.key in planAuto || planEdits[pl.key]?.name != null) continue;
+    if (packPlace(T.pack, pl.e.lat, pl.e.lng) || pl.news.some(x => x._p.estPlace)) continue;
+    const nm = await reverseGeocode(pl.e.lat, pl.e.lng);
+    planAuto[pl.key] = nm;
+    const inp = $("plan").querySelector(`[data-key="${CSS.escape(pl.key)}"] input[data-k="name"]`);
+    if (inp && !inp.value && nm && planEdits[pl.key]?.name == null) inp.value = nm;
+  }
+}
 function renderAdd(){
-  resolvePending();
-  $("thumbs").innerHTML = pending.map(p => `<div class="thumb"><img src="${p.preview}" alt=""><div class="meta">
-    <span class="${p.approxTime?"no":"ok"}">${p.approxTime?"heure ?":esc(T.F.time.format(new Date(p.at)))}</span>
-    <span class="${p.lat==null?"no":p.approxPos?"est":"ok"}">${p.lat==null?"lieu ?":p.inFlight?"✈":p.approxPos?"≈ lieu":"lieu"}</span></div>${p.sent?'<div class="done">✓</div>':""}</div>`).join("");
-  const n = pending.length, withT = pending.filter(p => !p.approxTime).length, withG = pending.filter(p => p.metaLat != null).length;
-  const est = pending.filter(p => p.approxPos).length, miss = pending.filter(p => p.lat == null).length;
-  const src = [...new Set(pending.filter(p => p.timeSrc).map(p => p.timeSrc))].join(", ");
+  resolvePending(); buildPlan(); renderPlan(); nameNewStops();
+  const act = pending.filter(p => !p.dup), n = act.length, dup = pending.length - n;
+  const withT = act.filter(p => !p.approxTime).length, withG = act.filter(p => p.metaLat != null).length;
+  const est = act.filter(p => p.approxPos).length, miss = act.filter(p => p.lat == null).length;
+  const stops = plan.filter(x => x.e.kind === "stop").length, legs = plan.filter(x => x.e.kind === "leg");
+  const src = [...new Set(act.filter(p => p.timeSrc).map(p => p.timeSrc))].join(", ");
   $("summary").innerHTML = `
-    <div class="row"><b>${withT===n?"✓":"!"}</b><span>Heure lue dans ${withT===n?"toutes les photos":`${withT} photo${withT>1?"s":""} sur ${n}`}${src?` (source : ${esc(src)})`:""}${withT<n?". Les autres prennent l'heure indiquée plus bas.":""}</span></div>
-    <div class="row"><b>${withG===n?"✓":miss?"!":"≈"}</b><span>Position lue dans ${withG===n?"toutes les photos":`${withG} photo${withG>1?"s":""} sur ${n}`}${est?`, ${est} placée${est>1?"s":""} d'après les photos prises juste avant ou après`:""}${miss?`, ${miss} sans lieu`:""}.</span></div>
-    ${pending.some(p => p.stale) ? `<div class="row"><b>≈</b><span>${pending.filter(p => p.stale).length} photo(s) avec une position GPS périmée (téléphone sans signal, par exemple à l'atterrissage) : placée(s) d'après le trajet.</span></div>` : ""}
-    <div class="row"><b>↝</b><span>Les photos prises en route (avion, ferry, voiture) dessineront le trajet sur la carte.</span></div>
+    <div class="row"><b>${withT===n?"✓":"!"}</b><span>Heure lue dans ${withT===n?"toutes les photos":`${withT} photo${withT>1?"s":""} sur ${n}`}${src?` (${esc(src)})`:""}${withT<n?". Les autres prennent l'heure indiquée plus bas.":""}</span></div>
+    <div class="row"><b>${withG===n?"✓":miss?"!":"≈"}</b><span>Position lue dans ${withG===n?"toutes les photos":`${withG} sur ${n}`}${est?`, ${est} estimée${est>1?"s":""} (avant/après, vol)`:""}${miss?`, <b>${miss} sans lieu</b>`:""}.</span></div>
+    ${act.some(p => p.stale) ? `<div class="row"><b>≈</b><span>${act.filter(p => p.stale).length} photo(s) au GPS périmé (téléphone sans signal) : placée(s) d'après le trajet.</span></div>` : ""}
+    <div class="row"><b>↝</b><span>Rangement automatique : <b>${stops} étape${stops>1?"s":""}</b>${legs.length ? ` et <b>${legs.length} trajet${legs.length>1?"s":""}</b> dessiné${legs.length>1?"s":""} par les photos prises en route` : ""}. Vérifie les noms ci-dessous, tout reste modifiable ensuite.</span></div>
+    ${dup ? `<div class="row"><b>⤼</b><span>${dup} photo${dup>1?"s":""} déjà publiée${dup>1?"s":""} : ignorée${dup>1?"s":""}.</span></div>` : ""}
     ${chosen?`<div class="row"><b>✓</b><span>Placées sur : ${esc(chosen.name || fmtCoord(chosen.lat,chosen.lng))}</span></div>`:""}`;
   $("where").hidden = !miss && !chosen;
   $("where-title").textContent = miss ? `${miss} photo${miss>1?"s":""} sans position. Où était-ce ?` : "Lieu choisi";
   $("coords").textContent = chosen ? fmtCoord(chosen.lat, chosen.lng) : "Aucune position choisie";
   if (withT < n) $("more").open = true;
-  const ref = pending.find(p => p.lat != null);
-  if (!$("f-name").dataset.touched){
-    const auto = chosen?.name || (ref ? packPlace(T.pack, ref.lat, ref.lng) : "");
-    $("f-name").value = auto;
-    if (!auto && ref){
-      const req = ++nameReq;
-      $("name-hint").textContent = "Recherche du nom du lieu…";
-      reverseGeocode(ref.lat, ref.lng).then(nm => {
-        if (req !== nameReq || $("f-name").dataset.touched) return;
-        $("f-name").value = nm; $("name-hint").textContent = nm ? "Trouvé automatiquement (OpenStreetMap), modifiable" : "Aucun nom trouvé, tu peux en écrire un";
-      });
-    }
-  }
-  if ($("f-name").value || !ref || $("f-name").dataset.touched) $("name-hint").textContent = $("f-name").value ? "Trouvé automatiquement, modifiable" : "Aucun lieu connu à proximité, tu peux en écrire un";
-  $("add-title").textContent = n > 1 ? `${n} nouvelles photos` : "Nouvelle photo";
+  $("add-title").textContent = n > 1 ? `${n} nouvelles photos` : n ? "Nouvelle photo" : "Rien de nouveau";
   $("add-submit").textContent = n > 1 ? `Publier les ${n} photos` : "Publier";
+  $("add-submit").disabled = !n || adding;
 }
-$("f-name").addEventListener("input", () => $("f-name").dataset.touched = "1");
 $("f-when").addEventListener("change", renderAdd);
 $("f-photos").addEventListener("change", async e => {
   const files = [...e.target.files]; e.target.value = "";
   if (!files.length || !T.trip) return;
   pending.forEach(p => URL.revokeObjectURL(p.preview));
-  pending = []; chosen = null; $("add-form").reset(); delete $("f-name").dataset.touched; $("more").open = false;
-  fillPlaceSelect(); $("f-results").hidden = true;
+  pending = []; chosen = null; planEdits = {}; planAuto = {}; plan = [];
+  $("add-form").reset(); $("more").open = false; fillPlaceSelect(); $("f-results").hidden = true;
   $("f-when").value = toLocalInput(T.tz, Date.now());
-  $("add").hidden = false; $("thumbs").innerHTML = ""; $("summary").innerHTML = "Lecture des photos…"; $("where").hidden = true; addMsg("");
-  $("progress").hidden = true; $("add-submit").disabled = false;
-  for (const f of files){
+  $("add").hidden = false; $("plan").innerHTML = ""; $("where").hidden = true; addMsg("");
+  $("progress").hidden = false; $("add-submit").disabled = true; $("add-title").textContent = `${files.length} photo${files.length>1?"s":""}`;
+  const bar = $("progress").firstElementChild; let done = 0;
+  const isDup = dupChecker();
+  const items = new Array(files.length);
+  await pool(files, 4, async (f, k) => {
     const m = await readMeta(f, T.tz); // sur l'original, avant toute compression
-    pending.push({file:f, preview:URL.createObjectURL(f), metaLat:m.gpsStale ? null : m.lat, metaLng:m.gpsStale ? null : m.lng,
-      stale:m.gpsStale, staleLat:m.gpsStale ? m.lat : null, staleLng:m.gpsStale ? m.lng : null, gpsAt:m.gpsAt,
-      metaAt:m.at, timeSrc:m.timeSrc, device:m.device});
-  }
-  pending.sort((a,b) => (a.metaAt ?? 9e15) - (b.metaAt ?? 9e15));
+    const preview = await makePreview(f);
+    const stale = m.gpsStale;
+    const key = `${Math.round((m.at ?? f.lastModified) / 1000)}|${m.device || ""}|${f.size}|${f.name}`;
+    const dup = isDup(m);
+    items[k] = {file:f, preview, key, dup, metaLat: stale ? null : m.lat, metaLng: stale ? null : m.lng, stale, staleLat: stale ? m.lat : null, staleLng: stale ? m.lng : null,
+      gpsAt: m.gpsAt, metaAt: m.at, timeSrc: m.timeSrc, device: m.device};
+    done++; bar.style.width = `${done / files.length * 100}%`;
+    $("summary").innerHTML = `<div class="row"><b>…</b><span>Lecture des photos : ${done} sur ${files.length}</span></div>`;
+  });
+  // Doublons à l'intérieur de la sélection
+  const seen = new Set(); items.forEach(p => { if (seen.has(p.key)) p.dup = true; seen.add(p.key); });
+  pending = items.sort((a,b) => (a.metaAt ?? 9e15) - (b.metaAt ?? 9e15));
+  $("progress").hidden = true; bar.style.width = "0";
   renderAdd();
 });
-function closeAdd(){ pending.forEach(p => URL.revokeObjectURL(p.preview)); pending = []; $("add").hidden = true; $("progress").hidden = true; nameReq++; }
+function closeAdd(){ if (adding) return; pending.forEach(p => URL.revokeObjectURL(p.preview)); pending = []; plan = []; $("add").hidden = true; $("progress").hidden = true; naming2++; }
 $("add-close").onclick = closeAdd; $("add-cancel").onclick = closeAdd;
-$("f-place").addEventListener("change", () => { const p = T.pack?.places?.[$("f-place").value]; if (!p) return; chosen = {lat:p[1], lng:p[2], name:p[0], all:false}; delete $("f-name").dataset.touched; renderAdd(); });
-placeSearch($("f-search"), $("f-results"), x => { chosen = {lat:x.lat, lng:x.lng, name:x.name, all:false}; $("f-place").value = ""; delete $("f-name").dataset.touched; renderAdd(); });
+$("f-place").addEventListener("change", () => { const p = T.pack?.places?.[$("f-place").value]; if (!p) return; chosen = {lat:p[1], lng:p[2], name:p[0], all:false}; renderAdd(); });
+placeSearch($("f-search"), $("f-results"), x => { chosen = {lat:x.lat, lng:x.lng, name:x.name, all:false}; $("f-place").value = ""; renderAdd(); });
 const pickFor = all => { $("add").hidden = true; startPick(all ? "Touche l'endroit où placer toutes ces photos" : "Touche l'endroit où étaient prises ces photos", async ll => {
-  if (ll){ chosen = {lat:ll.lat, lng:ll.lng, name:packPlace(T.pack, ll.lat, ll.lng), all}; $("f-place").value = ""; delete $("f-name").dataset.touched; }
+  if (ll){ chosen = {lat:ll.lat, lng:ll.lng, name:packPlace(T.pack, ll.lat, ll.lng), all}; $("f-place").value = ""; }
   $("add").hidden = false; renderAdd(); }); };
 $("btn-pick").onclick = () => pickFor(false);
 $("btn-pick2").onclick = () => pickFor(true);
 
 $("add-form").addEventListener("submit", async e => {
   e.preventDefault();
-  const todo = pending.filter(p => !p.sent);
+  if (adding) return;
+  resolvePending(); buildPlan();
+  const todo = pending.filter(p => !p.sent && !p.dup);
   if (!todo.length) return;
-  resolvePending();
   if (todo.some(p => p.lat == null)){ addMsg("Indique où ont été prises les photos sans position (recherche, liste ou carte).", true); $("where").scrollIntoView({block:"center"}); return; }
-  const caption = $("f-caption").value.trim(), typed = $("f-name").dataset.touched ? $("f-name").value.trim() : "";
-  const autoName = $("f-name").value.trim();
-  const tripId = T.id, firstCaption = !pending.some(p => p.sent);
-  $("add-submit").disabled = true; $("progress").hidden = false;
-  const bar = $("progress").firstElementChild;
-  let done = 0;
-  try {
-    for (const p of todo){
-      const i = done;
-      addMsg(`Envoi de la photo ${i+1} sur ${todo.length}…`);
-      const setBar = f => bar.style.width = `${((i + f) / todo.length) * 100}%`; setBar(0);
+  // Ce que le plan dit de chaque photo : nom de l'étape, petit mot, mode du trajet
+  const info = new Map();
+  plan.forEach(pl => {
+    const ed = planEdits[pl.key] || {};
+    pl.news.forEach((x, k) => {
+      const p = x._p;
+      if (pl.e.kind === "stop") info.set(p, { place: planName(pl), caption: k === 0 && !pl.old.length ? (ed.caption || "").trim() : "", captionOld: k === 0 && pl.old.length ? (ed.caption || "").trim() : "" });
+      else info.set(p, { place: p.estPlace || "", caption: "", arriveBy: ed.mode || "", leg: true });
+    });
+  });
+  const tripId = T.id, bar = $("progress").firstElementChild, t0 = Date.now();
+  adding = true; $("add-submit").disabled = true; $("add-cancel").disabled = true; $("progress").hidden = false;
+  let lock = null; try { lock = await navigator.wakeLock?.request("screen"); } catch(_){}
+  let done = 0, failed = 0, fatal = null;
+  const tick = () => {
+    const left = todo.length - done - failed, per = (Date.now() - t0) / Math.max(1, done);
+    bar.style.width = `${(done + failed) / todo.length * 100}%`;
+    addMsg(`Envoi : ${done} sur ${todo.length}${left && done ? ` · environ ${Math.max(1, Math.round(left * per / 60000))} min restante${left * per > 90000 ? "s" : ""}` : ""}. Garde l'écran allumé.`);
+  };
+  tick();
+  await pool(todo, 2, async p => {
+    if (fatal) return;
+    try {
       const id = doc(collection(db, `trips/${tripId}/stops`)).id;
       const im = await decodeImage(p.file);
       let big, small;
       try { big = await jpegUnder(im, 1600, 950000); small = await jpegUnder(im, 400, 60000, .78); } finally { im.done(); }
-      setBar(.3);
-      // Nom : celui tapé, sinon lieu du pack proche, sinon Nominatim (mis en cache dans le document).
-      const place = typed || (chosen && !p.metaLat ? chosen.name : "") || p.estPlace || packPlace(T.pack, p.lat, p.lng)
-        || (pending.length === 1 ? autoName : "") || (p.inFlight ? "" : await reverseGeocode(p.lat, p.lng)) || (p.inFlight ? "" : autoName);
-      const docData = { lat:p.lat, lng:p.lng, at:p.at, created:Date.now(), place, caption: firstCaption && i === 0 ? caption : "",
+      const inf = info.get(p) || {};
+      const place = inf.place || (chosen && !p.metaLat ? chosen.name : "") || p.estPlace || packPlace(T.pack, p.lat, p.lng)
+        || (p.inFlight ? "" : await reverseGeocode(p.lat, p.lng));
+      const docData = { lat:p.lat, lng:p.lng, at:p.at, created:Date.now(), place, caption: inf.caption || inf.captionOld || "",
         thumb: await toBytes(small), hasPhoto: true, approxPos: !!p.approxPos, approxTime: !!p.approxTime, device: p.device || "",
         by: user.uid, byName: user.displayName || user.email || "", ...(p.gpsAt ? {gpsAt: p.gpsAt} : {}), ...(p.stale ? {gpsStale: true} : {}),
-        ...(p.inFlight ? {moving: true} : {}) };
+        ...(p.inFlight ? {moving: true} : {}), ...(inf.arriveBy ? {arriveBy: inf.arriveBy} : {}) };
       // La photo et l'étape sont écrites ensemble : tout ou rien.
       const b = writeBatch(db);
       b.set(doc(db, `trips/${tripId}/photos/${id}`), { data: await toBytes(big) });
@@ -1074,19 +1233,27 @@ $("add-form").addEventListener("submit", async e => {
       T.mine.add(id);
       await b.commit();
       p.sent = true; done++;
+    } catch(err){
+      failed++;
+      if (err?.message === "format") p.badFormat = true;
+      else if (["resource-exhausted", "permission-denied", "unauthenticated"].includes(err?.code)) fatal = err.code;
     }
+    tick();
+  });
+  try { await lock?.release(); } catch(_){}
+  adding = false; $("add-cancel").disabled = false;
+  const bad = todo.filter(p => p.badFormat).length, rest = todo.filter(p => !p.sent).length;
+  if (!rest){
     bar.style.width = "100%"; closeAdd(); T.filterDay = null;
     toast(done > 1 ? `${done} photos publiées` : "Photo publiée");
-  } catch(err){
-    renderAdd();
-    const c = err?.code || "";
-    addMsg(err?.message === "format" ? "Ce format de photo n'est pas lu par ce navigateur. Choisis la photo en JPEG."
-      : c === "resource-exhausted" ? "Le quota gratuit de Firebase est atteint pour aujourd'hui. Réessaie demain."
-      : c === "permission-denied" ? "Envoi refusé : ce compte n'est pas éditeur, ou les règles ne sont pas publiées."
-      : `L'envoi s'est arrêté. ${done ? `${done} photo${done>1?"s":""} déjà publiée${done>1?"s":""}. ` : ""}Vérifie la connexion puis appuie à nouveau sur Publier pour envoyer les autres.`, true);
-    $("add-submit").textContent = "Reprendre l'envoi";
+    return;
   }
-  $("add-submit").disabled = false;
+  pending = pending.filter(p => !p.sent || p.dup);
+  renderAdd();
+  addMsg(fatal === "resource-exhausted" ? `${done} photos publiées. Le quota gratuit de Firebase est atteint pour aujourd'hui : réessaie demain pour les ${rest} autres.`
+    : fatal ? "Envoi refusé : ce compte n'est pas éditeur, ou la connexion a expiré. Reconnecte-toi."
+    : `${done} photo${done>1?"s":""} publiée${done>1?"s":""}. ${rest} n'ont pas pu être envoyée${rest>1?"s":""}${bad ? ` (dont ${bad} dans un format illisible ici)` : ""} : vérifie la connexion puis appuie sur « Reprendre l'envoi ».`, true);
+  $("add-submit").textContent = "Reprendre l'envoi";
 });
 
 /* ---------- Ajouter un lieu sans photo (départ de la maison, aéroport…) ---------- */
@@ -1147,8 +1314,15 @@ $("hero-explore").onclick = () => { $("hero").hidden = true; };
 const S = { on:false, frames:[], k:0, playing:true, t:0, last:0, raf:0, entry:null, traveller:null, legT0:0 };
 function buildFrames(){
   const frames = [];
+  // Les grosses étapes (des dizaines de photos) : une sélection répartie, les photos avec un petit mot d'abord.
+  const pick = (its, n) => {
+    if (its.length <= n) return its;
+    const keep = new Set(its.filter(x => x.caption).slice(0, n));
+    for (let k = 0; keep.size < n && k < n * 3; k++) keep.add(its[Math.round(k * (its.length - 1) / (n * 3 - 1))]);
+    return its.filter(x => keep.has(x));
+  };
   visibleEntries().forEach(e => {
-    const its = e.items.filter(x => x.hasPhoto);
+    const its = pick(e.items.filter(x => x.hasPhoto), e.kind === "leg" ? 4 : 6);
     if (e.kind === "leg"){
       if (its.length) its.forEach(it => frames.push({e, it, dur: 2800 + Math.min(2500, (it.caption || "").length * 35)}));
       else frames.push({e, it:null, dur: e.mode === "plane" ? 4500 : Math.min(4000, 1800 + e.km * 80)});

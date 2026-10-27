@@ -24,7 +24,8 @@
   --shadow:0 6px 24px rgba(0,0,0,.5); color-scheme:dark }
 
 *,*::before,*::after{box-sizing:border-box}
-html,body{height:100%;margin:0}
+html,body{height:100%;margin:0;max-width:100%}
+html,body{overflow-x:clip}
 body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.5;-webkit-text-size-adjust:100%}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:1000;background:var(--panel)}
 [hidden]{display:none!important}
@@ -112,7 +113,7 @@ h1{font-family:var(--f-display);font-weight:400;font-size:1.45rem;line-height:1.
 
 /* ---------- Carte ---------- */
 .main{flex:1;display:grid;grid-template-columns:1fr;min-height:0}
-.mapwrap{position:relative;height:60svh;min-height:340px;overflow:hidden}
+.mapwrap{position:relative;height:60svh;min-height:340px;overflow:hidden;isolation:isolate;z-index:0}
 #map{position:absolute;inset:0}
 .leaflet-container{font-family:var(--f-body);
   background-color:var(--sea);
@@ -196,9 +197,9 @@ aside.log{background:var(--bg);padding-block:14px 110px;padding-left:max(16px,en
 .stops{list-style:none;margin:0;padding:0 0 0 14px;border-left:2px dotted var(--dc);display:flex;flex-direction:column;gap:10px}
 .stop{position:relative}
 .stop::before{content:"";position:absolute;left:-21px;top:24px;width:12px;height:12px;border-radius:50%;background:var(--dc);border:2px solid var(--bg)}
-.stop button{width:100%;display:flex;gap:12px;align-items:center;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px}
-.stop button:hover{border-color:var(--muted)}
-.stop.active button{border-color:var(--dc);box-shadow:0 0 0 1px var(--dc)}
+.stop > button[data-open]{width:100%;display:flex;gap:12px;align-items:center;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px}
+.stop > button[data-open]:hover{border-color:var(--muted)}
+.stop.active > button[data-open]{border-color:var(--dc);box-shadow:0 0 0 1px var(--dc)}
 .thumbstack{position:relative;width:62px;height:62px;flex:none;isolation:isolate}
 .thumbstack img,.thumbstack .ph{position:absolute;inset:0;width:100%;height:100%;border-radius:9px;object-fit:cover;background:var(--line);box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .thumbstack img + img{transform:rotate(6deg) translate(3px,-1px);z-index:-1}
@@ -331,9 +332,9 @@ body.noscroll{overflow:hidden}
 .flag{display:inline-block;margin-left:8px;font:600 .62rem var(--f-body);text-transform:uppercase;letter-spacing:.07em;background:var(--dc,var(--fg));color:#fff;border-radius:5px;padding:1px 6px;vertical-align:1px}
 .flag.big{font-size:.7rem;vertical-align:4px}
 .leg{position:relative}
-.leg button{width:100%;display:flex;gap:12px;align-items:center;text-align:left;background:none;border:1px dashed color-mix(in srgb,var(--dc) 55%,var(--line));border-radius:12px;padding:8px 10px}
-.leg button:hover{background:var(--panel)}
-.leg.active button{background:var(--panel);border-style:solid;border-color:var(--dc)}
+.leg > button[data-open]{width:100%;display:flex;gap:12px;align-items:center;text-align:left;background:none;border:1px dashed color-mix(in srgb,var(--dc) 55%,var(--line));border-radius:12px;padding:8px 10px}
+.leg > button[data-open]:hover{background:var(--panel)}
+.leg.active > button[data-open]{background:var(--panel);border-style:solid;border-color:var(--dc)}
 .modeico{width:36px;height:36px;border-radius:50%;flex:none;display:grid;place-items:center;background:var(--panel);border:2px solid var(--dc)}
 .modeico svg{width:18px;height:18px}
 .m-plane .modeico svg{transform:rotate(-45deg)}
@@ -354,7 +355,7 @@ body.noscroll{overflow:hidden}
 .results small{color:var(--muted);font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* ---------- Accueil du voyage ---------- */
-.hero{position:fixed;inset:0;z-index:2500;display:flex;align-items:flex-end;color:#fff;background:#0a151a}
+.hero{position:fixed;inset:0;z-index:2500;overflow:hidden;display:flex;align-items:flex-end;color:#fff;background:#0a151a}
 .hero-bg{position:absolute;inset:0;background-size:cover;background-position:center;animation:kb-hero 18s ease-out both}
 .hero-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(5,12,16,.15) 0%,rgba(5,12,16,.25) 40%,rgba(5,12,16,.88) 100%)}
 @keyframes kb-hero{from{transform:scale(1.12)}to{transform:scale(1)}}
@@ -411,3 +412,64 @@ body.storying #map-note,body.storying .mapbtn,body.storying .leaflet-control-zoo
   .story{left:18px;top:18px;bottom:18px;right:auto;width:420px;height:auto;border-radius:18px;border-top:0;border-left:4px solid var(--dc,var(--accent))}
   body.storying .mapwrap{height:100svh}
 }
+
+
+/* ---------- Téléphone ---------- */
+/* iOS zoome la page quand on touche un champ dont le texte fait moins de 16 px, puis la page défile de côté. */
+input,select,textarea{font-size:16px!important}
+img{max-width:100%}
+.main,.log,.mapwrap{max-width:100vw}
+@media (max-width:640px){
+  header.top{gap:8px;padding-block:8px}
+  header.top h1{font-size:1.15rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .status{font-size:.78rem;gap:6px}
+  .status span:not(.pill){display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+  .top-actions{gap:6px;flex-wrap:nowrap}
+  .top-actions .btn{padding:8px;min-width:38px}
+  .mapwrap{height:52svh;min-height:300px}
+  .compass{width:42px;height:42px}
+  .fab{width:60px;height:60px;padding:0;justify-content:center;border-radius:50%}
+  .fab svg{width:26px;height:26px}
+  .fab-txt{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  aside.log{padding-bottom:120px}
+  .stop > button[data-open],.leg > button[data-open]{padding:7px}
+  .thumbstack{width:56px;height:56px}
+  .day-head h2{font-size:1.05rem}
+  .tcards{grid-template-columns:1fr}
+  .sheet{max-height:94%}
+  .lb-nav .btn{padding:8px 10px;font-size:.85rem}
+}
+.leaflet-control-attribution{max-width:calc(100vw - 90px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- Boutons « modifier » du carnet ---------- */
+.stop,.leg{position:relative}
+.rowedit{position:absolute;right:6px;top:6px;z-index:2;width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--muted);display:grid;place-items:center;padding:0}
+.rowedit svg{width:15px;height:15px}
+.stop > .rowedit + button[data-open],.leg > .rowedit + button[data-open]{padding-right:44px}
+.leg.is-hidden{opacity:.55}
+
+/* ---------- Plan de l'envoi ---------- */
+.plan{display:flex;flex-direction:column;gap:8px}
+.plan-day{font-family:var(--f-display);font-size:1rem;margin-top:6px;color:var(--muted)}
+.plan-item{border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--bg)}
+.plan-item.leg{border-style:dashed}
+.plan-top{display:flex;gap:10px;align-items:center;min-width:0}
+.plan-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.plan-txt input{padding:6px 10px;min-height:38px;font-weight:600}
+.plan-txt small,.plan-join{color:var(--muted);font-size:.78rem}
+.plan-n{flex:none;width:30px;height:30px;border-radius:50%;background:var(--fg);color:var(--bg);font:600 .78rem/30px var(--f-mono);text-align:center}
+.plan-item select{width:auto;min-height:38px;padding:6px 8px;flex:none;max-width:44%}
+.plan-strip{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+.plan-strip img{width:52px;height:52px;border-radius:7px;object-fit:cover;flex:none;background:var(--line)}
+.plan-strip span{flex:none;width:52px;height:52px;border-radius:7px;display:grid;place-items:center;background:var(--line);font:600 .8rem var(--f-mono);color:var(--muted)}
+.plan-item textarea{min-height:40px;padding:8px 10px}
+.plan .modeico{width:30px;height:30px;--dc:var(--fg)}
+
+/* ---------- Fiche trajet ---------- */
+.modes{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:6px}
+.modes button{border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:8px 4px;display:flex;flex-direction:column;align-items:center;gap:4px;font-weight:600}
+.modes button small{font-size:.74rem;color:var(--muted)}
+.modes button .modeico{--dc:var(--muted);width:34px;height:34px}
+.modes button[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);background:var(--panel)}
+.modes button[aria-pressed="true"] .modeico{--dc:var(--accent)}
+.modes button[aria-pressed="true"] small{color:var(--fg)}

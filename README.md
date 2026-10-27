@@ -38,7 +38,9 @@ Avec la CLI : `npx firebase deploy --only firestore:rules` (après avoir mis l'i
 
 ## Le récit du voyage
 
-- Les photos sont regroupées en **étapes** (même jour, moins de 75 min et 600 m d'écart) reliées par des **trajets**.
+- Les photos sont regroupées en **étapes** (même jour, moins de 75 min et 600 m d'écart, ou au même endroit à 150 m près dans les 5 h) reliées par des **trajets**.
+- **Ajout en masse** (100 photos et plus) : lecture en parallèle, vignettes légères, photos déjà publiées ignorées, puis un **plan** qui montre les étapes et trajets détectés avant publication (nom et petit mot par étape, moyen de transport par trajet). Envoi 2 par 2, écran maintenu allumé, reprise possible.
+- **Fiche trajet** (crayon dans le carnet, ou toucher le trajet sur la carte) : moyen de transport (avion, bateau, voiture, taxi, bus, train, vélo, à pied), nom, petit mot, masquer. Étapes : fusionner avec la précédente, ou nouvelle étape à partir d'une photo.
 - Une photo prise **en route** ne crée pas d'étape : sur l'eau (ferry), dans l'avion (entre deux photos éloignées, à plus de 200 km/h) ou en roulant. Elle dessine le trajet et apparaît en petite vignette ronde sur la carte.
 - Mode du trajet deviné automatiquement : avion, bateau (photos sur l'eau, ou traversée sans photo), voiture, à pied. L'éditeur peut l'imposer (« Arrivé ici en… »), forcer une photo en « prise en route » ou en arrêt, et poser une étiquette (Départ, Arrivée, Hôtel…).
 - Étiquettes automatiques : **Départ** et **Retour** pour les étapes hors du pays du voyage, **Arrivée** après le vol aller ; vols « aller » et « retour ».

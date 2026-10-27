@@ -6,8 +6,7 @@ const R = path.resolve(__dirname, '..'), OUT = path.join(R, 'tests', 'captures')
 fs.mkdirSync(OUT, { recursive: true });
 const FB = R + '/node_modules/firebase/';
 const testCfg = fs.readFileSync(R + '/firebase-config.js', 'utf8')
-  .replace(/apiKey: "REMPLACER"/, 'apiKey: "fake-key"').replace(/projectId: "REMPLACER"/, 'projectId: "demo-voyage"')
-  .replace(/storageBucket: "[^"]+"/, 'storageBucket: "demo-voyage.appspot.com"')
+  .replace(/projectId: "[^"]+"/, 'projectId: "demo-voyage"').replace(/authDomain: "[^"]+"/, 'authDomain: "demo-voyage.firebaseapp.com"')
   .replace('export const emulators = null;', 'export const emulators = { host: "127.0.0.1" };');
 const blankPng = fs.readFileSync(R + '/icons/icon-180.png');
 async function setup(ctx){
@@ -47,13 +46,13 @@ const log = (...a) => console.log('•', ...a);
   // Ajout de photos
   const fx = R + '/tests/fixtures/';
   await p.setInputFiles('#f-photos', [fx + 'gps_fuseau.jpg', fx + 'heure_fausse_gps_juste.jpg', fx + 'sans_fuseau_changement_heure.jpg']);
-  await p.waitForFunction(() => !document.querySelector('#add').hidden && document.querySelectorAll('#thumbs .thumb').length === 3);
+  await p.waitForFunction(() => !document.querySelector('#add').hidden && document.querySelectorAll('#plan .plan-item').length >= 2);
   log('résumé :', (await p.textContent('#summary')).replace(/\s+/g, ' ').trim());
-  log('badges :', await p.$$eval('#thumbs .meta', els => els.map(e => e.textContent.replace(/\s+/g, ' ').trim()).join(' | ')));
-  log('lieu proposé :', await p.inputValue('#f-name'), '| zone "où" visible :', await p.isVisible('#where'));
+  log('plan :', await p.$$eval('#plan .plan-item input', els => els.map(e => e.value).join(' | ')), '| zone "où" visible :', await p.isVisible('#where'));
   await p.screenshot({ path: OUT + '/3-ajout.png' });
   await p.selectOption('#f-place', { label: 'Mdina' });
-  await p.fill('#f-caption', 'Premier jour sous le soleil');
+  await p.waitForFunction(() => document.querySelectorAll('#plan .plan-item.stop').length === 3);
+  await p.fill('#plan .plan-item.stop textarea', 'Premier jour sous le soleil');
   await p.click('#add-submit');
   await p.waitForFunction(() => document.querySelector('#add').hidden, null, { timeout: 30000 });
   await p.waitForFunction(() => document.querySelectorAll('#list .stop').length >= 3, null, { timeout: 15000 });
@@ -62,7 +61,7 @@ const log = (...a) => console.log('•', ...a);
   log('bandeau :', (await p.textContent('#status')).replace(/\s+/g, ' ').trim());
   await p.screenshot({ path: OUT + '/4-carnet.png' });
   // Visionneuse + modifier
-  await p.click('#list .stop button');
+  await p.click('#list .stop button[data-open]');
   await p.waitForSelector('#lb:not([hidden])');
   await p.waitForFunction(() => { const i = document.querySelector('#lb-img img'); return i && i.complete && i.naturalWidth > 0; });
   log('visionneuse :', (await p.textContent('#lb-when')).trim(), '|', await p.textContent('#lb-title'), '|', await p.textContent('#lb-by'));
@@ -98,8 +97,8 @@ const log = (...a) => console.log('•', ...a);
   await v.waitForTimeout(500);
   await v.screenshot({ path: OUT + '/7-visiteur-mobile.png', fullPage: false });
   // Direct : l'éditeur ajoute une photo, le visiteur la voit
-  await p.setInputFiles('#f-photos', [fx + 'gps_fuseau.jpg']);
-  await p.waitForFunction(() => document.querySelectorAll('#thumbs .thumb').length === 1);
+  await p.setInputFiles('#f-photos', [fx + 'sud_ouest.jpg']);
+  await p.waitForFunction(() => !document.querySelector('#add-submit').disabled);
   await p.click('#add-submit');
   await v.waitForFunction(() => document.querySelectorAll('#list .thumbstack b').length >= 1 || document.querySelectorAll('#list .stop').length >= 4, null, { timeout: 15000 });
   log('mise à jour en direct reçue par le visiteur');
@@ -141,8 +140,9 @@ const log = (...a) => console.log('•', ...a);
   await p.screenshot({ path: OUT + '/9-accueil.png' });
   // Supprimer une étape (fichiers compris)
   await p.goto('http://127.0.0.1:8000/#/v/malte-2026'); await p.waitForFunction(() => document.querySelectorAll('#list .stop').length >= 3);
+  await p.waitForTimeout(1000);
   const before = await p.$$eval('#list .stop', e => e.length);
-  await p.click('#list .stop:last-child button'); await p.click('#lb-editbtn'); await p.click('#e-delstop'); await p.click('#e-delstop');
+  await p.click('#list .stop:last-child button[data-open]'); await p.click('#lb-editbtn'); await p.click('#e-delstop'); await p.click('#e-delstop');
   await p.waitForFunction(n => document.querySelectorAll('#list .stop').length < n, before);
   log('étape supprimée :', before, '->', await p.$$eval('#list .stop', e => e.length));
   console.log('ERREURS:', errs.length ? errs.join('\n') : 'aucune');
