@@ -45,6 +45,9 @@ Avec la CLI : `npx firebase deploy --only firestore:rules` (après avoir mis l'i
 - Mode du trajet deviné automatiquement : avion, bateau (photos sur l'eau, ou traversée sans photo), voiture, à pied. L'éditeur peut l'imposer (« Arrivé ici en… »), forcer une photo en « prise en route » ou en arrêt, et poser une étiquette (Départ, Arrivée, Hôtel…).
 - Étiquettes automatiques : **Départ** et **Retour** pour les étapes hors du pays du voyage, **Arrivée** après le vol aller ; vols « aller » et « retour ».
 - Une photo sans position prise entre deux photos éloignées (dans l'avion) est placée sur la ligne entre les deux.
+- **Ranger à la main** : *Modifier > Ranger dans une autre étape* (cette photo ou toute l'étape), ou **appui long** sur une étape du carnet pour la glisser dans une autre ; « Annuler » dans le message qui suit. Champ `stopRef` : la photo rejoint l'étape qui contient cette photo de référence, son heure et sa position suivent l'étape si elles sont incertaines ou trop éloignées.
+- **Vidéos « vidées » par l'iPhone** (le navigateur reçoit une copie sans lieu ni appareil, datée du moment de l'export) : reconnues, jamais placées au hasard ; on choisit leur étape dans « Où était-ce ? » avant l'envoi.
+- **Plusieurs éditeurs** (Réglages > Éditeurs) : leurs photos suivent exactement le même rangement que les tiennes (même endroit et même moment = même étape, sinon nouvelle étape ou trajet).
 - **Lieu sans photo** (bouton dans le carnet) : la maison au départ, l'aéroport…, trouvé par recherche ou en touchant la carte.
 
 Pour les proches : écran d'accueil du voyage, **Revivre le voyage** (la carte suit le parcours, l'avion et le bateau avancent, les photos défilent en diaporama), visionneuse plein écran qui enchaîne toutes les photos du voyage au doigt, onglet **Photos** (galerie par jour), message quand une nouvelle photo arrive.

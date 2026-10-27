@@ -54,10 +54,15 @@ const log = (...a) => console.log('•', ...a), txt = s => s.replace(/\s+/g, ' '
   await p.click('#v-save'); await p.waitForFunction(() => /enregistrés/.test(document.querySelector('#v-msg').textContent));
   // Envoi : photos du voyage + vidéo du ferry (+ grosse vidéo en morceaux)
   await p.goto('http://127.0.0.1:8000/#/v/malte-2026'); await p.waitForSelector('#screen-trip:not([hidden])'); await p.waitForTimeout(800);
-  const files = [...fs.readdirSync(dir).sort().map(f => dir + f), R + '/tests/fixtures/videos/ferry-vp9.mp4', ...(big ? [big] : [])];
+  const files = [...fs.readdirSync(dir).sort().map(f => dir + f), R + '/tests/fixtures/videos/ferry-vp9.mp4', R + '/tests/fixtures/videos/copie-iphone.mp4', ...(big ? [big] : [])];
   await p.setInputFiles('#f-photos', files);
   await p.waitForFunction(() => document.querySelectorAll('#plan .plan-item').length >= 5 && !document.querySelector('#add-submit').disabled, null, { timeout: 60000 });
   await p.waitForTimeout(1200);
+  // La vidéo « vidée » par l'iPhone : signalée, à ranger dans une étape existante (Ċirkewwa, publiée plus tôt)
+  log('à ranger :', txt(await p.textContent('#where-strip .miss small')));
+  await p.selectOption('#where-strip .miss select', { index: 1 });
+  await p.waitForTimeout(500);
+  log('rangée dans :', await p.$eval('#where-strip .miss select', s => s.options[s.selectedIndex].text));
   log('résumé :', txt(await p.textContent('#summary')));
   log('passage en HD proposé :', /1 photo déjà publiée en qualité standard/.test(await p.textContent('#summary')), '|', await p.textContent('#add-submit'));
   log('plan :', (await p.$$eval('#plan .plan-item', els => els.map(e => (e.classList.contains('leg') ? '↝ ' + e.querySelector('b').textContent : '● ' + e.querySelector('input').value) + ' (' + e.querySelectorAll('.plan-strip .fi').length + (e.querySelector('.vbadge') ? ', vidéo' : '') + ')'))).join(' | '));
@@ -79,6 +84,30 @@ const log = (...a) => console.log('•', ...a), txt = s => s.replace(/\s+/g, ' '
   await p.waitForFunction(() => /127\.0\.0\.1:9000\/file\//.test(document.querySelector('#lb-img img')?.src || ''), null, { timeout: 15000 }).catch(() => {});
   log('photo passée en HD :', await p.$eval('#lb-img img', i => new URL(i.src).host), '|', await p.textContent('#lb-title'));
   await p.click('#lb-close');
+  log('vidéo rangée :', await p.$$eval('#list .stop', els => els.filter(e => e.querySelector('.vmark')).map(e => e.querySelector('.place').textContent).join(', ')));
+  // Ranger une photo dans une autre étape depuis « Modifier », puis Annuler
+  await p.click('#list .stop:has-text("Valletta") button[data-open]'); await p.waitForSelector('#lb:not([hidden])');
+  await p.click('#lb-editbtn');
+  await p.selectOption('#e-target', { label: (await p.$$eval('#e-target option', o => o.map(x => x.textContent))).find(t => /Mġarr/.test(t)) });
+  await p.click('#e-move-photo');
+  await p.waitForFunction(() => /Rangé dans « Mġarr/.test(document.querySelector('#toast').textContent));
+  await p.waitForTimeout(800);
+  log('après rangement : Valletta', await p.$$eval('#list .stop', els => els.filter(e => /Valletta/.test(e.textContent)).length), 'étape(s) | Mġarr :', await p.$eval('#list .stop:has-text("Mġarr") .thumbstack', e => e.textContent.trim() || '1'));
+  await p.click('#toast'); await p.waitForTimeout(1200);
+  log('annulé : Valletta', await p.$$eval('#list .stop', els => els.filter(e => /Valletta/.test(e.textContent)).length), 'étape(s)');
+  // Appui long et glisser : l'étape « Mġarr » glissée dans « Ċirkewwa »
+  await p.waitForSelector('#toast', { state: 'hidden', timeout: 10000 });
+  const n0 = await p.$$eval('#list .stop', e => e.length);
+  const src = await p.$('#list .stop:has-text("Mġarr") button[data-open]'), dst = await p.$('#list .stop:has-text("Ċirkewwa") button[data-open]');
+  await src.evaluate(e => e.scrollIntoView({ block: 'center' })); await p.waitForTimeout(300);
+  const a = await src.boundingBox(), b = await dst.boundingBox();
+  await p.mouse.move(a.x + a.width / 2, a.y + a.height / 2); await p.mouse.down(); await p.waitForFunction(() => document.body.classList.contains('dragmode'), null, { timeout: 5000 }).catch(() => {});
+  log('mode glisser :', await p.evaluate(() => document.body.classList.contains('dragmode')));
+  await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2 + 5, { steps: 8 }); await p.waitForTimeout(200);
+  log('cible survolée :', await p.$$eval('#list li.drop', e => e.map(x => x.querySelector('.place').textContent).join()));
+  await p.mouse.up(); await p.waitForTimeout(1500);
+  log('glisser-déposer :', n0, '->', await p.$$eval('#list .stop', e => e.length), 'étapes |', txt(await p.textContent('#toast')));
+  await p.screenshot({ path: OUT + '/vid5-glisser.png' });
   log('carnet (vidéos) :', await p.$$eval('#list .vbadge, #list .vmark', e => e.length), 'repères vidéo');
   await p.screenshot({ path: OUT + '/vid1-carnet.png' });
   // Visionneuse : la vidéo se lit

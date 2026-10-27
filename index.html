@@ -118,6 +118,7 @@
           </button>
         </div>
       </div>
+      <p class="drag-hint" id="drag-hint" hidden>Astuce : appui long sur une étape pour la glisser dans une autre.</p>
       <div class="days" id="days" role="toolbar" aria-label="Filtrer par jour"></div>
       <div id="list"></div>
     </aside>
@@ -378,11 +379,15 @@
             <option value="">Automatique</option><option value="plane">Avion</option><option value="boat">Bateau</option><option value="car">Voiture</option><option value="taxi">Taxi</option><option value="bus">Bus</option><option value="train">Train</option><option value="bike">Vélo</option><option value="walk">À pied</option>
           </select></label>
         </div>
+        <div class="f" id="e-target-row">Ranger dans une autre étape
+          <select id="e-target" aria-label="Étape de destination"></select>
+          <div class="row-btns"><button class="btn" type="button" id="e-move-photo">Cette photo</button><button class="btn only-stop" type="button" id="e-move-stop">Toute l'étape</button></div>
+        </div>
         <label class="check" id="e-moving-row"><input type="checkbox" id="e-moving"> Cette photo a été prise en route (elle dessine le trajet au lieu de faire une étape)</label>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn only-stop" type="button" id="e-move">Déplacer sur la carte</button>
           <button class="btn" type="button" id="e-legbtn">Modifier le trajet</button>
-          <button class="btn only-stop" type="button" id="e-merge">Fusionner avec l'étape précédente</button>
+          <button class="btn only-stop" type="button" id="e-merge">Annuler le rangement manuel</button>
           <button class="btn only-stop" type="button" id="e-split">Nouvelle étape à partir de cette photo</button>
           <button class="btn danger" type="button" id="e-delphoto">Retirer cette photo</button>
           <button class="btn danger" type="button" id="e-delstop">Supprimer l'étape</button>

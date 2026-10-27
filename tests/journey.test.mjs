@@ -108,3 +108,18 @@ test("réglages de l'éditeur : trajet renommé, masqué, étapes fusionnées ou
   const c = ph(35.8990, 14.5147, T(25, 12, 20), { splitHere: true });
   j = buildJourney([a, c], opts); assert.equal(j.stops.length, 2);
 });
+
+test("ranger à la main une photo (ou une vidéo) dans l'étape choisie", () => {
+  const a = ph(35.8989, 14.5146, T(26, 12, 0)), b = ph(35.8990, 14.5150, T(26, 12, 20));          // La Valette
+  const c = ph(35.8879, 14.5225, T(26, 16, 30)), d = ph(35.8880, 14.5226, T(26, 17, 0));          // Birgu
+  const v = ph(35.8989, 14.5146, T(27, 21, 39), { video: { duration: 50 } });                      // vidéo « vidée » : mauvaise heure
+  let j = buildJourney([a, b, c, d, v], opts);
+  assert.equal(j.stops.length, 3);
+  const moved = { ...v, stopRef: c.id, at: T(26, 17, 1), approxTime: true };
+  j = buildJourney([a, b, c, d, moved], opts);
+  assert.equal(j.stops.length, 2);
+  assert.ok(j.stops[1].items.includes(moved)); assert.equal(j.stops[1].id, c.id);
+  // une étape entière glissée dans une autre
+  j = buildJourney([a, b, { ...c, stopRef: a.id }, { ...d, stopRef: a.id }], opts);
+  assert.equal(j.stops.length, 1); assert.equal(j.stops[0].items.length, 4);
+});
