@@ -4,10 +4,10 @@
   "type": "module",
   "description": "Outils de test seulement : le site est statique, sans build.",
   "scripts": {
-    "test": "node --test tests/time.test.mjs tests/exif.test.mjs",
+    "test": "node --test tests/time.test.mjs tests/exif.test.mjs tests/journey.test.mjs",
     "test:rules": "firebase emulators:exec --only firestore,auth --project demo-voyage \"node --test tests/rules.test.mjs\"",
     "emulators": "firebase emulators:start --only firestore,auth --project demo-voyage",
-    "test:e2e": "node tests/e2e.cjs"
+    "test:e2e": "node tests/e2e.cjs && node tests/e2e-voyage.cjs"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.4",

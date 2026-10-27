@@ -84,9 +84,9 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg>
         <span>Plan des rues</span>
       </button>
-      <button class="btn" id="btn-replay" type="button" disabled>
+      <button class="btn primary" id="btn-replay" type="button" disabled>
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
-        <span>Rejouer le parcours</span>
+        <span>Revivre le voyage</span>
       </button>
       <a class="btn" id="btn-admin" href="#" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -100,9 +100,24 @@
       <div class="compass" aria-hidden="true"><svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="27" fill="none" stroke="var(--sea-label)" stroke-width="1" stroke-dasharray="2 3"/><path d="M30 6 L36 30 L30 54 L24 30 Z" fill="var(--panel)" stroke="var(--sea-label)" stroke-width="1.2"/><path d="M30 6 L36 30 L24 30 Z" fill="var(--accent)"/><path d="M6 30 L30 26 L54 30 L30 34 Z" fill="var(--panel)" stroke="var(--sea-label)" stroke-width="1"/><text x="30" y="5.5" text-anchor="middle" font-size="7" font-family="JetBrains Mono, monospace" fill="var(--fg)" font-weight="600">N</text></svg></div>
       <div class="map-note" id="map-note" hidden></div>
       <div class="pickbar" id="pickbar" hidden><span id="pick-text">Touche la carte à l'endroit de l'étape</span><button type="button" id="pick-cancel">Annuler</button></div>
-      <div class="replay-card" id="replay-card" hidden></div>
+      <button class="mapbtn" id="btn-overview" type="button" aria-pressed="false" hidden title="Voir l'aller-retour">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg>
+        <span>Aller-retour</span>
+      </button>
     </div>
     <aside class="log">
+      <div class="log-top">
+        <div class="seg" id="view-tabs" role="tablist" aria-label="Affichage" hidden>
+          <button type="button" data-view="carnet" aria-pressed="true">Carnet</button>
+          <button type="button" data-view="photos" aria-pressed="false">Photos</button>
+        </div>
+        <div class="editor-tools" id="editor-tools" hidden>
+          <button class="btn ghost" type="button" id="btn-addplace">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 21s7-7.5 7-12a7 7 0 0 0-14 0c0 4.5 7 12 7 12z"/><path d="M12 6v6M9 9h6"/></svg>
+            Lieu sans photo
+          </button>
+        </div>
+      </div>
       <div class="days" id="days" role="toolbar" aria-label="Filtrer par jour"></div>
       <div id="list"></div>
     </aside>
@@ -192,8 +207,12 @@
     <div class="summary" id="summary"></div>
     <div class="where" id="where" hidden>
       <div style="font-weight:600;font-size:.88rem" id="where-title">Où était-ce ?</div>
+      <div class="search">
+        <input type="text" id="f-search" placeholder="Chercher un lieu : aéroport de Charleroi, La Valette…" autocomplete="off" aria-label="Chercher un lieu">
+        <ul class="results" id="f-results" hidden></ul>
+      </div>
       <div class="where-row">
-        <select id="f-place" aria-label="Choisir un lieu connu"><option value="">Choisir un lieu…</option></select>
+        <select id="f-place" aria-label="Choisir un lieu connu"><option value="">Lieu connu…</option></select>
         <button type="button" class="btn" id="btn-pick">Toucher la carte</button>
       </div>
       <div class="coords" id="coords">Aucune position choisie</div>
@@ -213,6 +232,68 @@
     </div>
   </form>
 </div>
+
+<!-- ============ Lieu sans photo ============ -->
+<div class="overlay" id="place" hidden>
+  <form class="sheet" id="pl-form" novalidate>
+    <div class="sheet-head">
+      <h3>Ajouter un lieu sans photo</h3>
+      <button type="button" class="x" data-close="place" aria-label="Fermer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <p class="muted" style="margin:0">Pour marquer un départ, une arrivée ou un passage sans photo : la maison, l'aéroport, l'hôtel…</p>
+    <div class="search">
+      <input type="text" id="pl-search" placeholder="Chercher : aéroport de Charleroi, hôtel…" autocomplete="off" aria-label="Chercher un lieu">
+      <ul class="results" id="pl-results" hidden></ul>
+    </div>
+    <div class="where-row"><button type="button" class="btn" id="pl-pick">Toucher la carte</button><span class="coords" id="pl-coords">Aucun endroit choisi</span></div>
+    <label class="f">Nom<input type="text" id="pl-name" maxlength="80"></label>
+    <div class="grid2">
+      <label class="f">Date et heure<input type="datetime-local" id="pl-when"></label>
+      <label class="f">Étiquette <small>Facultatif</small><input type="text" id="pl-tag" maxlength="30" list="dl-tags" placeholder="Départ, Arrivée…"></label>
+    </div>
+    <label class="f">Petit mot <small>Facultatif</small><textarea id="pl-caption" maxlength="600"></textarea></label>
+    <div class="msg" id="pl-msg" hidden></div>
+    <div class="sheet-actions">
+      <button type="button" class="btn" data-close="place">Annuler</button>
+      <button type="submit" class="btn primary" id="pl-submit">Ajouter au carnet</button>
+    </div>
+  </form>
+</div>
+
+<!-- ============ Accueil du voyage (visiteurs) ============ -->
+<div class="hero" id="hero" hidden>
+  <div class="hero-bg" id="hero-bg"></div>
+  <div class="hero-in">
+    <div class="hero-kicker" id="hero-kicker"></div>
+    <h2 id="hero-title"></h2>
+    <p id="hero-sub"></p>
+    <div class="hero-stats" id="hero-stats"></div>
+    <div class="hero-actions">
+      <button class="btn primary big" type="button" id="hero-play"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Revivre le voyage</button>
+      <button class="btn big glass" type="button" id="hero-explore">Explorer la carte</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Revivre le voyage ============ -->
+<section class="story" id="story" hidden aria-label="Revivre le voyage">
+  <div class="st-bar" id="st-bar"></div>
+  <div class="st-media" id="st-media"></div>
+  <div class="st-body">
+    <div class="st-kicker" id="st-kicker"></div>
+    <h3 id="st-title"></h3>
+    <p id="st-cap"></p>
+  </div>
+  <div class="st-controls">
+    <span class="st-count" id="st-count"></span>
+    <div>
+      <button type="button" id="st-prev" aria-label="Précédent"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM20 6v12L9.5 12z"/></svg></button>
+      <button type="button" id="st-play" class="st-play" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg><svg class="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+      <button type="button" id="st-next" aria-label="Suivant"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM4 6v12l10.5-6z"/></svg></button>
+    </div>
+    <button type="button" id="st-close" aria-label="Fermer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+</section>
 
 <!-- ============ Nouveau voyage ============ -->
 <div class="overlay" id="newtrip" hidden>
@@ -253,11 +334,18 @@
       <div class="coords" id="lb-coords"></div>
       <div class="byline" id="lb-by"></div>
       <div class="edit" id="lb-edit" hidden>
-        <label class="f">Nom du lieu<input type="text" id="e-name" maxlength="80"></label>
-        <label class="f">Petit mot<textarea id="e-caption" maxlength="600"></textarea></label>
-        <label class="f">Heure de l'étape <small>Décale toutes les photos de l'étape</small><input type="datetime-local" id="e-when"></label>
+        <label class="f only-stop">Nom du lieu<input type="text" id="e-name" maxlength="80"></label>
+        <label class="f" id="e-caption-label">Petit mot<textarea id="e-caption" maxlength="600"></textarea></label>
+        <label class="f">Heure <small>Pour une étape : décale toutes ses photos</small><input type="datetime-local" id="e-when"></label>
+        <div class="grid2">
+          <label class="f only-stop">Étiquette <small>Facultatif</small><input type="text" id="e-tag" maxlength="30" list="dl-tags" placeholder="Départ, Arrivée, Hôtel…"></label>
+          <label class="f" id="e-mode-label">Arrivé ici en <select id="e-mode">
+            <option value="">Automatique</option><option value="plane">Avion</option><option value="boat">Bateau</option><option value="car">Voiture</option><option value="bus">Bus</option><option value="train">Train</option><option value="walk">À pied</option>
+          </select></label>
+        </div>
+        <label class="check" id="e-moving-row"><input type="checkbox" id="e-moving"> Cette photo a été prise en route (elle dessine le trajet au lieu de faire une étape)</label>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn" type="button" id="e-move">Déplacer sur la carte</button>
+          <button class="btn only-stop" type="button" id="e-move">Déplacer sur la carte</button>
           <button class="btn danger" type="button" id="e-delphoto">Retirer cette photo</button>
           <button class="btn danger" type="button" id="e-delstop">Supprimer l'étape</button>
         </div>
@@ -284,6 +372,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <datalist id="dl-countries"></datalist>
 <datalist id="dl-timezones"></datalist>
+<datalist id="dl-tags"><option value="Départ"><option value="Arrivée"><option value="Retour"><option value="Hôtel"><option value="Aéroport"></datalist>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
