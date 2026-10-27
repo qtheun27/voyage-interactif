@@ -5,8 +5,8 @@
   "description": "Outils de test seulement : le site est statique, sans build.",
   "scripts": {
     "test": "node --test tests/time.test.mjs tests/exif.test.mjs",
-    "test:rules": "firebase emulators:exec --only firestore,storage,auth --project demo-voyage \"node --test tests/rules.test.mjs\"",
-    "emulators": "firebase emulators:start --only firestore,storage,auth --project demo-voyage",
+    "test:rules": "firebase emulators:exec --only firestore,auth --project demo-voyage \"node --test tests/rules.test.mjs\"",
+    "emulators": "firebase emulators:start --only firestore,auth --project demo-voyage",
     "test:e2e": "node tests/e2e.cjs"
   },
   "devDependencies": {

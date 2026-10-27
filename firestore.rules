@@ -40,6 +40,12 @@ service cloud.firestore {
         allow write: if viIsEditor();
       }
 
+      // Photos en grand (JPEG dans un champ Bytes, moins de 1 Mio), chargées à la demande.
+      match /photos/{stopId} {
+        allow read: if viIsMember(tripId) || viIsEditor();
+        allow write: if viIsEditor();
+      }
+
       // L'id du document est le code d'accès : jamais lisible ni listable par les visiteurs.
       match /codes/{code} {
         allow read: if viIsEditor();

@@ -1,0 +1,16 @@
+# Publie le site : chaque modification de main est recopiée sur gh-pages (servie par GitHub Pages).
+name: Publier le site
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git push --force origin HEAD:gh-pages

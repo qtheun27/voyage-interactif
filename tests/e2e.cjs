@@ -64,6 +64,7 @@ const log = (...a) => console.log('•', ...a);
   // Visionneuse + modifier
   await p.click('#list .stop button');
   await p.waitForSelector('#lb:not([hidden])');
+  await p.waitForFunction(() => { const i = document.querySelector('#lb-img img'); return i && i.complete && i.naturalWidth > 0; });
   log('visionneuse :', (await p.textContent('#lb-when')).trim(), '|', await p.textContent('#lb-title'), '|', await p.textContent('#lb-by'));
   await p.screenshot({ path: OUT + '/5-visionneuse.png' });
   await p.click('#lb-editbtn'); await p.fill('#e-name', 'La Valette, Upper Barrakka'); await p.click('#e-save');

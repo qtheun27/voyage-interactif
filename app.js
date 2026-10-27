@@ -3,10 +3,8 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/fireba
 import { getAuth, onAuthStateChanged, signInAnonymously, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut,
   connectAuthEmulator, signInWithCredential }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import { getFirestore, doc, getDoc, getDocFromServer, getDocs, setDoc, collection, onSnapshot, writeBatch, serverTimestamp, getCountFromServer, connectFirestoreEmulator }
+import { getFirestore, doc, getDoc, getDocFromServer, getDocs, setDoc, collection, onSnapshot, writeBatch, serverTimestamp, getCountFromServer, connectFirestoreEmulator, Bytes }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
-import { getStorage, ref as sref, uploadBytesResumable, getDownloadURL, deleteObject, connectStorageEmulator }
-  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
 import { firebaseConfig, OWNER_EMAIL, OWNER_NAME, emulators } from "./firebase-config.js";
 import { toLocalInput, fromLocalInput } from "./lib/time.js";
 import { readMeta } from "./lib/exif.js";
@@ -32,15 +30,15 @@ const COUNTRIES = [
 
 /* ---------- Firebase ---------- */
 const configured = !String(firebaseConfig.apiKey || "").startsWith("REMPLACER");
-let fb = null, auth = null, db = null, storage = null;
+let fb = null, auth = null, db = null;
 if (configured){
   fb = initializeApp(firebaseConfig);
   auth = getAuth(fb); auth.languageCode = "fr";
-  db = getFirestore(fb); storage = getStorage(fb);
+  db = getFirestore(fb);
   if (emulators?.host){
     const h = emulators.host;
     connectAuthEmulator(auth, `http://${h}:9099`, {disableWarnings:true});
-    connectFirestoreEmulator(db, h, 8080); connectStorageEmulator(storage, h, 9199);
+    connectFirestoreEmulator(db, h, 8080);
     // Connexion « Google » simulée, pour les tests automatiques avec l'émulateur uniquement.
     window.__viTestSignIn = email => signInWithCredential(auth, GoogleAuthProvider.credential(JSON.stringify({sub: email, email, email_verified: true})));
   }
@@ -94,7 +92,7 @@ function joined(){ try { return JSON.parse(localStorage.getItem("vi.joined") || 
 function remember(id, t){
   try {
     const l = joined().filter(x => x.id !== id);
-    l.unshift({id, title: t?.title || id, coverUrl: t?.coverUrl || "", startDate: t?.startDate || "", endDate: t?.endDate || "", status: t?.status || "", country: t?.country || ""});
+    l.unshift({id, title: t?.title || id, startDate: t?.startDate || "", endDate: t?.endDate || "", status: t?.status || "", country: t?.country || ""});
     localStorage.setItem("vi.joined", JSON.stringify(l.slice(0, 30)));
   } catch(_){}
 }
@@ -143,15 +141,38 @@ async function toJpeg(im, max, q){
   if (!b) throw new Error("format");
   return b;
 }
-function upload(path, blob, onProgress){
-  return new Promise((resolve, reject) => {
-    const task = uploadBytesResumable(sref(storage, path), blob, {contentType:"image/jpeg", cacheControl:"public,max-age=31536000"});
-    task.on("state_changed", s => onProgress?.(s.bytesTransferred / (s.totalBytes || 1)), reject, async () => {
-      try { resolve(await getDownloadURL(task.snapshot.ref)); } catch(e){ reject(e); }
-    });
-  });
+/* Les photos sont rangées dans Firestore (forfait gratuit, sans Storage) : un document fait au plus 1 Mio.
+   On réduit la qualité, puis la taille, jusqu'à passer sous la limite. */
+async function jpegUnder(im, max, limit, q = .85){
+  for (let size = max; size >= Math.min(max, 320); size = Math.round(size * .85)){
+    for (let qq = q; qq >= .55; qq -= .1){
+      const b = await toJpeg(im, size, qq);
+      if (b.size <= limit) return b;
+    }
+  }
+  throw new Error("format");
 }
-const removeFile = p => p ? deleteObject(sref(storage, p)).catch(() => {}) : Promise.resolve();
+const toBytes = async b => Bytes.fromUint8Array(new Uint8Array(await b.arrayBuffer()));
+/* Bytes Firestore -> adresse d'image locale, gardée en mémoire. */
+const imgCache = new Map();
+function imgUrl(key, bytes){
+  if (!bytes?.toUint8Array) return null;
+  const u8 = bytes.toUint8Array(), c = imgCache.get(key);
+  if (c && c.n === u8.length) return c.url;
+  if (c) URL.revokeObjectURL(c.url);
+  const url = URL.createObjectURL(new Blob([u8], {type:"image/jpeg"}));
+  imgCache.set(key, {n: u8.length, url});
+  return url;
+}
+/* Photo en grand : chargée à la demande depuis trips/{id}/photos/{stop}. */
+const fullLoads = new Map();
+function fullPhoto(tripId, stopId){
+  const k = `${tripId}/${stopId}`;
+  if (!fullLoads.has(k)) fullLoads.set(k, getDoc(doc(db, `trips/${tripId}/photos/${stopId}`))
+    .then(s => s.exists() ? imgUrl("full:" + k, s.data().data) : null)
+    .catch(() => { fullLoads.delete(k); return null; }));
+  return fullLoads.get(k);
+}
 
 /* ---------- Routeur ---------- */
 const SCREENS = ["screen-home", "screen-gate", "screen-trip", "screen-admin"];
@@ -188,9 +209,10 @@ function tripCard(t, count){
   const status = t.status === "terminé" ? '<span class="pill done">Terminé</span>' : t.status ? '<span class="pill live">En cours</span>' : "";
   const meta = [fmtDates(t), count != null ? `${count} photo${count>1?"s":""}` : ""].filter(Boolean).join(" · ");
   return `<a class="tcard" href="#/v/${encodeURIComponent(t.id)}">
-    <div class="cover">${t.coverUrl ? `<img src="${esc(t.coverUrl)}" alt="" loading="lazy">` : `<span class="iso">${esc(t.country || "")}</span>`}${status}</div>
+    <div class="cover">${coverSrc(t) ? `<img src="${coverSrc(t)}" alt="" loading="lazy">` : `<span class="iso">${esc(t.country || "")}</span>`}${status}</div>
     <div class="body"><h2>${esc(t.title || t.id)}</h2>${t.subtitle ? `<div class="meta">${esc(t.subtitle)}</div>` : ""}<div class="meta">${esc(meta)}</div></div></a>`;
 }
+const coverSrc = t => imgUrl("cover:" + t.id, t.cover);
 async function renderHome(seq){
   document.title = "Voyage interactif";
   show("screen-home");
@@ -217,9 +239,13 @@ async function renderHome(seq){
     const list = joined();
     el.innerHTML = list.length ? list.map(t => tripCard(t)).join("") : "";
     // Rafraîchit titres et couvertures si l'accès est toujours valable.
-    if (user) list.forEach(async t => {
-      try { const s = await getDoc(doc(db, "trips", t.id)); if (s.exists()) remember(t.id, s.data()); } catch(_){}
-    });
+    // Rafraîchit titres et couvertures si l'accès est toujours valable.
+    if (user && list.length){
+      const fresh = await Promise.all(list.map(t => getDoc(doc(db, "trips", t.id)).then(s => s.exists() ? {id:t.id, ...s.data()} : t).catch(() => t)));
+      if (seq !== routeSeq) return;
+      fresh.forEach(t => remember(t.id, t));
+      el.innerHTML = fresh.map(t => tripCard(t)).join("");
+    }
   }
 }
 $("join-form").addEventListener("submit", e => {
@@ -278,7 +304,7 @@ $("nt-form").addEventListener("submit", async e => {
     if ((await getDoc(doc(db, "trips", id))).exists()){ setMsg("nt-msg", "Un voyage porte déjà cet identifiant.", "err"); $("nt-submit").disabled = false; return; }
     const b = writeBatch(db);
     b.set(doc(db, "trips", id), { title, subtitle: $("nt-subtitle").value.trim(), country, timezone,
-      startDate: $("nt-start").value || "", endDate: $("nt-end").value || "", coverUrl: "", status: "en cours",
+      startDate: $("nt-start").value || "", endDate: $("nt-end").value || "", status: "en cours",
       createdAt: serverTimestamp(), owner: user.uid });
     b.set(doc(db, `trips/${id}/codes/${code}`), {});
     await b.commit();
@@ -374,7 +400,7 @@ async function openTrip(id, seq, force){
   }, () => {}));
   let first = true;
   T.unsubs.push(onSnapshot(collection(db, `trips/${id}/stops`), snap => {
-    T.photos = snap.docs.map(s => ({id:s.id, ...s.data()})).filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng) && Number.isFinite(s.at));
+    T.photos = snap.docs.map(s => { const d = s.data(); return {id:s.id, ...d, thumbUrl: imgUrl("thumb:" + s.id, d.thumb), hasPhoto: !!d.hasPhoto}; }).filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng) && Number.isFinite(s.at));
     T.loaded = true;
     const grew = !first && snap.docChanges().some(ch => ch.type === "added");
     const keep = T.activeGroup;
@@ -629,8 +655,12 @@ function openLb(id, fly, keepIdx){
 function drawLb(){
   const g = curGroup(); if (!g) return;
   const it = g.items[lbIdx];
-  $("lb-img").hidden = !it.photoUrl;
-  $("lb-img").innerHTML = it.photoUrl ? `<img src="${esc(it.photoUrl)}" alt="${esc(it.caption||g.place||"Photo du voyage")}">${g.items.length>1?`<button class="arrow l" type="button" data-step="-1" aria-label="Photo précédente">‹</button><button class="arrow r" type="button" data-step="1" aria-label="Photo suivante">›</button>`:""}` : "";
+  $("lb-img").hidden = !it.hasPhoto;
+  $("lb-img").innerHTML = it.hasPhoto ? `<img src="${esc(it.thumbUrl || "")}" alt="${esc(it.caption||g.place||"Photo du voyage")}">${g.items.length>1?`<button class="arrow l" type="button" data-step="-1" aria-label="Photo précédente">‹</button><button class="arrow r" type="button" data-step="1" aria-label="Photo suivante">›</button>`:""}` : "";
+  if (it.hasPhoto){
+    const tripId = T.id;
+    fullPhoto(tripId, it.id).then(url => { const im = $("lb-img").querySelector("img"); if (url && im && T.id === tripId && curGroup()?.items[lbIdx]?.id === it.id) im.src = url; });
+  }
   $("lb-strip").hidden = g.items.length < 2;
   $("lb-strip").innerHTML = g.items.map((x,i) => `<button type="button" data-i="${i}" aria-current="${i===lbIdx}" aria-label="Photo ${i+1}">${x.thumbUrl?`<img src="${esc(x.thumbUrl)}" alt="">`:""}</button>`).join("");
   $("lb-when").textContent = `Étape ${g.n} · Jour ${g.day+1} · ` + T.F.full.format(new Date(it.at)) + (it.approxTime ? " (heure estimée)" : "");
@@ -672,13 +702,15 @@ async function updateEach(items, fn){
   if (n) await b.commit();
 }
 async function deleteItems(items){
-  const b = writeBatch(db); items.forEach(it => b.delete(stopRef(it.id))); await b.commit();
-  await Promise.all(items.flatMap(it => [removeFile(it.photoPath), removeFile(it.thumbPath)]));
+  const b = writeBatch(db);
+  items.forEach(it => { b.delete(stopRef(it.id)); b.delete(doc(db, `trips/${T.id}/photos/${it.id}`)); });
+  await b.commit();
+
 }
 $("lb-editbtn").onclick = () => {
   const g = curGroup(); if (!g) return;
   $("e-name").value = g.place; $("e-caption").value = g.caption; $("e-when").value = toLocalInput(T.tz, g.at);
-  $("e-delphoto").hidden = g.items.length < 2 && !g.items[lbIdx]?.photoUrl; delArm = null; setMsg("e-msg", "");
+  $("e-delphoto").hidden = g.items.length < 2 && !g.items[lbIdx]?.hasPhoto; delArm = null; setMsg("e-msg", "");
   $("e-delphoto").textContent = "Retirer cette photo"; $("e-delstop").textContent = "Supprimer l'étape";
   $("lb-edit").hidden = false; $("lb-nav").hidden = true;
 };
@@ -848,19 +880,19 @@ $("add-form").addEventListener("submit", async e => {
       const id = doc(collection(db, `trips/${tripId}/stops`)).id;
       const im = await decodeImage(p.file);
       let big, small;
-      try { big = await toJpeg(im, 2000, .85); small = await toJpeg(im, 480, .8); } finally { im.done(); }
-      const photoPath = `voyages/${tripId}/${id}.jpg`, thumbPath = `voyages/${tripId}/${id}_480.jpg`;
-      const total = big.size + small.size;
-      const photoUrl = await upload(photoPath, big, f => setBar(f * big.size / total * .95));
-      const thumbUrl = await upload(thumbPath, small, f => setBar((big.size + f * small.size) / total * .95));
+      try { big = await jpegUnder(im, 1600, 950000); small = await jpegUnder(im, 400, 60000, .78); } finally { im.done(); }
+      setBar(.3);
       // Nom : celui tapé, sinon lieu du pack proche, sinon Nominatim (mis en cache dans le document).
       const place = typed || (chosen && !p.metaLat ? chosen.name : "") || packPlace(T.pack, p.lat, p.lng)
         || (pending.length === 1 ? autoName : "") || await reverseGeocode(p.lat, p.lng) || autoName;
       const docData = { lat:p.lat, lng:p.lng, at:p.at, created:Date.now(), place, caption: firstCaption && i === 0 ? caption : "",
-        photoUrl, thumbUrl, photoPath, thumbPath, approxPos: !!p.approxPos, approxTime: !!p.approxTime, device: p.device || "",
+        thumb: await toBytes(small), hasPhoto: true, approxPos: !!p.approxPos, approxTime: !!p.approxTime, device: p.device || "",
         by: user.uid, byName: user.displayName || user.email || "" };
-      try { await setDoc(doc(db, `trips/${tripId}/stops/${id}`), docData); }
-      catch(err){ removeFile(photoPath); removeFile(thumbPath); throw err; }
+      // La photo et l'étape sont écrites ensemble : tout ou rien.
+      const b = writeBatch(db);
+      b.set(doc(db, `trips/${tripId}/photos/${id}`), { data: await toBytes(big) });
+      b.set(doc(db, `trips/${tripId}/stops/${id}`), docData);
+      await b.commit();
       p.sent = true; done++;
     }
     bar.style.width = "100%"; closeAdd(); T.filterDay = null;
@@ -869,8 +901,8 @@ $("add-form").addEventListener("submit", async e => {
     renderAdd();
     const c = err?.code || "";
     addMsg(err?.message === "format" ? "Ce format de photo n'est pas lu par ce navigateur. Choisis la photo en JPEG."
-      : c === "storage/quota-exceeded" ? "L'espace de stockage est plein."
-      : c === "storage/unauthorized" || c === "permission-denied" ? "Envoi refusé : ce compte n'est pas éditeur, ou les règles ne sont pas publiées."
+      : c === "resource-exhausted" ? "Le quota gratuit de Firebase est atteint pour aujourd'hui. Réessaie demain."
+      : c === "permission-denied" ? "Envoi refusé : ce compte n'est pas éditeur, ou les règles ne sont pas publiées."
       : `L'envoi s'est arrêté. ${done ? `${done} photo${done>1?"s":""} déjà publiée${done>1?"s":""}. ` : ""}Vérifie la connexion puis appuie à nouveau sur Publier pour envoyer les autres.`, true);
     $("add-submit").textContent = "Reprendre l'envoi";
   }
@@ -942,7 +974,7 @@ async function renderAdmin(id, seq){
   $("a-country").value = t.country || ""; $("a-timezone").value = t.timezone || "";
   $("a-start").value = t.startDate || ""; $("a-end").value = t.endDate || "";
   $("a-status").value = t.status === "terminé" ? "terminé" : "en cours";
-  $("a-cover-prev").innerHTML = t.coverUrl ? `<img src="${esc(t.coverUrl)}" alt="">` : "";
+  $("a-cover-prev").innerHTML = coverSrc({id, ...t}) ? `<img src="${coverSrc({id, ...t})}" alt="">` : "";
   $("a-share").value = shareLink(id);
   $("a-code-new").value = "";
   $("a-editors-panel").hidden = user?.email !== OWNER_EMAIL;
@@ -977,10 +1009,8 @@ $("admin-form").addEventListener("submit", async e => {
       startDate: $("a-start").value || "", endDate: $("a-end").value || "", status: $("a-status").value };
     if (A.coverFile){
       const im = await decodeImage(A.coverFile);
-      let b; try { b = await toJpeg(im, 1600, .85); } finally { im.done(); }
-      const path = `voyages/${A.id}/couverture-${Date.now()}.jpg`, old = A.trip.coverPath;
-      u.coverUrl = await upload(path, b); u.coverPath = path;
-      if (old) removeFile(old);
+      let b; try { b = await jpegUnder(im, 1000, 200000, .8); } finally { im.done(); }
+      u.cover = await toBytes(b);
       A.coverFile = null;
     }
     await setDoc(doc(db, "trips", A.id), u, {merge:true});
