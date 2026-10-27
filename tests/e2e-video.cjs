@@ -66,6 +66,11 @@ const log = (...a) => console.log('•', ...a), txt = s => s.replace(/\s+/g, ' '
   log(`envoi : ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   await p.waitForTimeout(1500);
   log('bandeau :', txt(await p.textContent('#status')));
+  // Les photos en grand sont parties sur Backblaze (2560 px), les miniatures restent dans Firestore
+  await p.click('#list .stop button[data-open]:has(img)'); await p.waitForSelector('#lb:not([hidden])');
+  await p.waitForFunction(() => /127\.0\.0\.1:9000\/file\//.test(document.querySelector('#lb-img img')?.src || ''), null, { timeout: 15000 });
+  log('photo en grand :', await p.$eval('#lb-img img', i => `${i.naturalWidth}×${i.naturalHeight} depuis ${new URL(i.src).host}`));
+  await p.click('#lb-close');
   log('carnet (vidéos) :', await p.$$eval('#list .vbadge, #list .vmark', e => e.length), 'repères vidéo');
   await p.screenshot({ path: OUT + '/vid1-carnet.png' });
   // Visionneuse : la vidéo se lit

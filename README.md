@@ -49,7 +49,9 @@ Avec la CLI : `npx firebase deploy --only firestore:rules` (après avoir mis l'i
 
 Pour les proches : écran d'accueil du voyage, **Revivre le voyage** (la carte suit le parcours, l'avion et le bateau avancent, les photos défilent en diaporama), visionneuse plein écran qui enchaîne toutes les photos du voyage au doigt, onglet **Photos** (galerie par jour), message quand une nouvelle photo arrive.
 
-## Vidéos (Backblaze B2)
+## Vidéos et photos HD (Backblaze B2)
+
+- Une fois Backblaze branché, les **photos en grand** partent aussi sur le seau (2560 px, JPEG 0,88, champs `photoUrl`, `photoKey`) ; les miniatures (400 px) restent dans Firestore pour un carnet et une carte rapides. Les photos déjà publiées restent lues depuis Firestore.
 
 - Les vidéos (MOV d'iPhone, MP4) partent **telles quelles** sur un seau Backblaze B2 public (10 Go gratuits, sans carte), sous un nom aléatoire impossible à deviner ; seule leur adresse est enregistrée dans Firestore, lisible par les membres du voyage.
 - Date avec fuseau, position GPS, durée et appareil sont lus dans la vidéo (`lib/mov.js`, boîte « moov » seulement). Une image vers 1 s sert d'affiche (carte, carnet, galerie).
