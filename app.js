@@ -644,6 +644,7 @@ function renderLog(){
   $("view-tabs").hidden = !T.photos.length;
   document.querySelectorAll("#view-tabs [data-view]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.view === T.view)));
   $("editor-tools").hidden = !isEditor;
+  $("drag-hint").hidden = !isEditor || T.view !== "carnet" || (T.J?.stops.length || 0) < 2;
   if (!T.loaded){ el.innerHTML = ""; return; }
   if (!T.photos.length){
     el.innerHTML = isEditor
@@ -754,6 +755,7 @@ $("days").addEventListener("click", e => {
 });
 $("view-tabs").addEventListener("click", e => { const b = e.target.closest("[data-view]"); if (!b) return; T.view = b.dataset.view; renderLog(); });
 $("list").addEventListener("click", e => {
+  if (suppressClick){ e.preventDefault(); e.stopPropagation(); return; }
   const le = e.target.closest("[data-legedit]"); if (le) return openLegSheet(le.dataset.legedit);
   const se = e.target.closest("[data-edit]"); if (se){ openEntry(se.dataset.edit, true); $("lb-editbtn").click(); return; }
   const p = e.target.closest("[data-photo]"); if (p) return openPhoto(p.dataset.photo);
@@ -892,9 +894,11 @@ $("lb-editbtn").onclick = () => {
   $("e-delphoto").textContent = "Retirer cette photo";
   $("e-delstop").textContent = isStop ? "Supprimer l'étape" : "Supprimer les photos du trajet";
   $("e-delstop").hidden = !e.items.length;
-  const si = T.J.stops.indexOf(e), merged = isStop && e.items.some(x => x.joinPrev);
-  $("e-merge").hidden = !isStop || (si <= 0 && !merged);
-  $("e-merge").textContent = merged ? "Annuler la fusion" : "Fusionner avec l'étape précédente";
+  const manual = isStop && e.items.some(x => x.joinPrev || (x.stopRef && x.stopRef !== x.id));
+  $("e-merge").hidden = !manual;
+  const here = isStop ? e : null;
+  $("e-target").innerHTML = `<option value="">Choisir l'étape…</option>` + T.J.stops.filter(s => s !== here).map(s =>
+    `<option value="${esc(s.id)}">${esc(dayName(s.day))} · ${esc(T.F.time.format(new Date(s.at)))} · ${esc(s.place || "Étape")} (${s.items.length})</option>`).join("");
   $("e-split").hidden = !isStop || i === 0;
   $("e-legbtn").hidden = isStop ? !T.J.legs.some(l => l.to === e) : false;
   $("lb-edit").hidden = false; $("lb-nav").hidden = true;
@@ -902,11 +906,81 @@ $("lb-editbtn").onclick = () => {
 };
 $("e-cancel").onclick = () => { $("lb-edit").hidden = true; $("lb-nav").hidden = false; };
 $("e-merge").onclick = async () => {
-  const { e } = lbCur(), merged = e.items.some(x => x.joinPrev);
-  try { await updateEach(e.items, x => merged ? (x.joinPrev ? {joinPrev: false} : {}) : {joinPrev: true, splitHere: false});
-    $("lb-edit").hidden = true; $("lb-nav").hidden = false; toast(merged ? "Étapes séparées" : "Étape fusionnée avec la précédente"); }
+  const { e } = lbCur();
+  try { await updateEach(e.items, x => (x.joinPrev || x.stopRef) ? {joinPrev: false, stopRef: ""} : {});
+    $("lb-edit").hidden = true; $("lb-nav").hidden = false; toast("Rangement manuel annulé : les photos reprennent leur place d'après l'heure et le lieu"); }
   catch(_){ setMsg("e-msg", "La modification a échoué. Réessaie.", "err"); }
 };
+/* Ranger des photos dans une étape choisie (avec « Annuler »). Leur heure et leur position suivent l'étape
+   si elles sont incertaines ou trop éloignées. */
+async function moveItemsTo(items, target){
+  if (!target || !items.length) return;
+  const FIELDS = ["stopRef", "at", "lat", "lng", "approxTime", "approxPos", "joinPrev", "splitHere", "moving", "still"];
+  const before = items.map(x => Object.fromEntries(FIELDS.map(k => [k, x[k] ?? (typeof x[k] === "number" ? 0 : k === "stopRef" ? "" : false)])));
+  let k = 0;
+  await updateEach(items, x => {
+    const far = x.approxTime || x.at < target.at - 2*3600e3 || x.at > target.end + 2*3600e3;
+    return { stopRef: target.items[0].id, joinPrev: false, splitHere: false, moving: false, still: true,
+      ...(far ? { at: target.end + (++k) * 1000, approxTime: true } : {}),
+      ...((x.approxPos || x.video || km(x, target) > 1) ? { lat: target.lat, lng: target.lng, approxPos: true } : {}) };
+  });
+  toast(`${items.length > 1 ? `${items.length} éléments rangés` : "Rangé"} dans « ${target.place || "l'étape"} » · Annuler`, async () => {
+    const b = writeBatch(db); items.forEach((x, i) => b.update(stopRef(x.id), before[i])); await b.commit(); toast("Rangement annulé");
+  });
+}
+const targetStop = () => T.J.stops.find(s => s.id === $("e-target").value);
+$("e-move-photo").onclick = async () => {
+  const { e, i } = lbCur(), t = targetStop(); if (!t) return setMsg("e-msg", "Choisis d'abord l'étape.", "err");
+  try { await moveItemsTo([e.items[i]], t); closeLb(); } catch(_){ setMsg("e-msg", "Le rangement a échoué. Réessaie.", "err"); }
+};
+$("e-move-stop").onclick = async () => {
+  const { e } = lbCur(), t = targetStop(); if (!t) return setMsg("e-msg", "Choisis d'abord l'étape.", "err");
+  try { await moveItemsTo(e.items, t); closeLb(); } catch(_){ setMsg("e-msg", "Le rangement a échoué. Réessaie.", "err"); }
+};
+
+/* ---------- Glisser une étape dans une autre (appui long dans le carnet) ---------- */
+let drag = null, suppressClick = false;
+function dragStart(ev){
+  if (!isEditor || T.view !== "carnet" || drag) return;
+  const li = ev.target.closest("li.stop"); if (!li || ev.target.closest(".rowedit")) return;
+  if (ev.type === "mousedown" && ev.button !== 0) return;
+  const pt = ev.touches ? ev.touches[0] : ev, scroller = innerWidth >= 900 ? document.querySelector("aside.log") : null;
+  const st = drag = { li, id: li.querySelector("[data-open]")?.dataset.open, x: pt.clientX, y: pt.clientY, on: false, target: null };
+  const move = e => {
+    const p = e.touches ? e.touches[0] : e;
+    if (!st.on){ if (Math.hypot(p.clientX - st.x, p.clientY - st.y) > 10) end(); return; }
+    e.preventDefault();
+    st.ghost.style.transform = `translate(${p.clientX - st.x}px, ${p.clientY - st.y}px) scale(1.03)`;
+    st.ghost.hidden = true; const under = document.elementFromPoint(p.clientX, p.clientY)?.closest("li.stop"); st.ghost.hidden = false;
+    $("list").querySelectorAll("li.drop").forEach(x => x.classList.remove("drop"));
+    st.target = under && under !== li ? under : null; st.target?.classList.add("drop");
+    const sy = p.clientY < 90 ? -14 : p.clientY > innerHeight - 90 ? 14 : 0;
+    if (sy) (scroller || window).scrollBy(0, sy);
+  };
+  const end = () => {
+    clearTimeout(st.timer);
+    ["touchmove", "mousemove"].forEach(t => document.removeEventListener(t, move));
+    ["touchend", "touchcancel", "mouseup"].forEach(t => document.removeEventListener(t, end));
+    drag = null;
+    if (!st.on) return;
+    suppressClick = true; setTimeout(() => suppressClick = false, 400);
+    st.ghost.remove(); li.classList.remove("dragging"); document.body.classList.remove("dragmode");
+    $("list").querySelectorAll("li.drop").forEach(x => x.classList.remove("drop"));
+    const src = T.J.stops.find(s => s.id === st.id), dst = st.target && T.J.stops.find(s => s.id === st.target.querySelector("[data-open]")?.dataset.open);
+    if (src && dst) moveItemsTo(src.items, dst).catch(() => toast("Le rangement a échoué."));
+  };
+  st.timer = setTimeout(() => {
+    st.on = true; navigator.vibrate?.(25);
+    const r = li.getBoundingClientRect();
+    st.ghost = li.cloneNode(true); st.ghost.classList.add("drag-ghost");
+    Object.assign(st.ghost.style, { left: r.left + "px", top: r.top + "px", width: r.width + "px" });
+    document.body.appendChild(st.ghost); li.classList.add("dragging"); document.body.classList.add("dragmode");
+  }, 450);
+  document.addEventListener("touchmove", move, {passive: false}); document.addEventListener("mousemove", move);
+  ["touchend", "touchcancel", "mouseup"].forEach(t => document.addEventListener(t, end));
+}
+$("list").addEventListener("touchstart", dragStart, {passive: true});
+$("list").addEventListener("mousedown", dragStart);
 $("e-split").onclick = async () => {
   const { e, i } = lbCur();
   try { await updateEach(e.items, (x, k) => x === e.items[i] ? {splitHere: true, joinPrev: false} : {});
@@ -1080,16 +1154,26 @@ function dupChecker(){
 function resolvePending(){
   // Heure : photo > GPS > heure choisie (estimée)
   const fallbackAt = fromLocalInput(T.tz, $("f-when").value) ?? Date.now();
-  pending.forEach((p,i) => { p.at = p.metaAt ?? (fallbackAt + i*1000); p.approxTime = p.metaAt == null; });
+  pending.forEach((p,i) => { p.at = p.metaAt ?? (fallbackAt + i*1000); p.approxTime = p.metaAt == null || !!p.stripped; });
   // Position : photo (GPS frais) > choix manuel > estimée : dans l'avion, à l'aéroport d'arrivée,
   // ou d'après la photo la plus proche dans le temps. Un GPS périmé (mode avion) ne compte pas.
-  const known = [...pending.filter(p => p.metaLat != null).map(p => ({at:p.at, lat:p.metaLat, lng:p.metaLng})),
+  const known = [...pending.filter(p => p.metaLat != null && !p.stripped).map(p => ({at:p.at, lat:p.metaLat, lng:p.metaLng})),
     ...T.photos.filter(p => !p.approxPos).map(p => ({at:p.at, lat:p.lat, lng:p.lng}))].sort((a,b) => a.at - b.at);
+  let k = 0;
   pending.forEach(p => {
-    p.approxPos = false; p.inFlight = false; p.estPlace = "";
+    p.approxPos = false; p.inFlight = false; p.estPlace = ""; p.stopRef = null;
+    // Rangée à la main dans une étape : sa position, et son heure si la sienne est incertaine ou loin de l'étape.
+    const t = p.assign ? T.J?.stops.find(s => s.id === p.assign) : null;
+    if (t){
+      p.stopRef = t.items[0].id; p.lat = t.lat; p.lng = t.lng; p.approxPos = true;
+      if (p.approxTime || p.at < t.at - 2*3600e3 || p.at > t.end + 2*3600e3){ p.at = t.end + (++k) * 1000; p.approxTime = true; }
+      return;
+    }
     if (chosen && (p.metaLat == null || chosen.all)){ p.lat = chosen.lat; p.lng = chosen.lng; return; }
     if (p.metaLat != null){ p.lat = p.metaLat; p.lng = p.metaLng; return; }
-    const est = p.approxTime ? null : estimatePosition(p.at, known, { airport: T.pack?.airport, inCountry: T.land?.inCountry });
+    // Vidéo « vidée » par l'iPhone (heure = moment de l'export) : estimée seulement si une photo a été prise juste avant ou après.
+    const near = p.stripped && known.some(x => Math.abs(x.at - p.at) < 2*3600e3);
+    const est = p.approxTime && !near ? null : estimatePosition(p.at, known, { airport: T.pack?.airport, inCountry: T.land?.inCountry });
     if (est){ p.lat = est.lat; p.lng = est.lng; p.approxPos = true; p.inFlight = !!est.inFlight; p.estPlace = est.place || ""; }
     else if (p.staleLat != null){ p.lat = p.staleLat; p.lng = p.staleLng; p.approxPos = true; }
     else { p.lat = null; p.lng = null; }
@@ -1097,7 +1181,7 @@ function resolvePending(){
 }
 /* Le plan : comment les nouvelles photos se rangent dans le récit (étapes, trajets), avant publication. */
 function buildPlan(){
-  const fresh = pending.filter(p => !p.dup && p.lat != null).map(p => ({ id: "new:" + p.key, lat: p.lat, lng: p.lng, at: p.at, hasPhoto: true,
+  const fresh = pending.filter(p => !p.dup && p.lat != null).map(p => ({ id: "new:" + p.key, lat: p.lat, lng: p.lng, at: p.at, hasPhoto: true, stopRef: p.stopRef || undefined,
     thumbUrl: p.preview, approxPos: p.approxPos, moving: p.inFlight || undefined, place: "", caption: "", _p: p }));
   const J = buildJourney([...T.photos, ...fresh], { dayKey, isWater: T.land.isWater, inCountry: T.land.inCountry, autoNames: T.autoNames, airport: T.pack?.airport });
   plan = J.timeline.filter(e => e.items.some(x => x._p)).map(e => {
@@ -1170,11 +1254,16 @@ function renderAdd(){
     ${ups ? `<div class="row"><b>✦</b><span><b>${ups} photo${ups>1?"s":""} déjà publiée${ups>1?"s":""}</b> en qualité standard : ${ups>1?"elles seront remplacées":"elle sera remplacée"} par la version haute qualité. Noms, petits mots, étapes et réglages sont gardés.</span></div>` : ""}
     ${dup ? `<div class="row"><b>⤼</b><span>${dup} photo${dup>1?"s":""} déjà publiée${dup>1?"s":""} : ignorée${dup>1?"s":""}.</span></div>` : ""}
     ${chosen?`<div class="row"><b>✓</b><span>Placées sur : ${esc(chosen.name || fmtCoord(chosen.lat,chosen.lng))}</span></div>`:""}`;
-  $("where").hidden = !miss && !chosen;
+  $("where").hidden = !miss && !chosen && !act.some(p => p.assign);
   $("where-title").textContent = miss ? `${miss} photo${miss>1?"s":""} sans position. Où était-ce ?` : "Lieu choisi";
   // Les photos concernées, avec leur heure : on sait de quoi on parle.
-  const missing = act.filter(p => p.lat == null || (chosen && p.metaLat == null));
-  $("where-strip").innerHTML = missing.slice(0, 12).map(p => `<span class="fi">${p.preview ? `<img src="${p.preview}" alt="">` : "<span>▶</span>"}${p.video ? vbadge({video: {duration: p.duration}}) : ""}<small>${p.approxTime ? "heure ?" : esc(T.F.time.format(new Date(p.at)))}</small></span>`).join("") + (missing.length > 12 ? `<span>+${missing.length - 12}</span>` : "");
+  // Chaque photo à placer, avec sa vignette, son heure et le choix de l'étape où la ranger.
+  const missing = act.filter(p => p.lat == null || p.assign || (chosen && p.metaLat == null));
+  const stopOpts = sel => `<option value="">${chosen ? "Au lieu choisi ci-dessus" : "Choisir l'étape…"}</option>` + (T.J?.stops || []).map(s =>
+    `<option value="${esc(s.id)}"${s.id === sel ? " selected" : ""}>${esc(dayName(s.day))} · ${esc(T.F.time.format(new Date(s.at)))} · ${esc(s.place || "Étape")}</option>`).join("");
+  $("where-strip").innerHTML = missing.slice(0, 40).map(p => `<div class="miss" data-key="${esc(p.key)}"><span class="fi">${p.preview ? `<img src="${p.preview}" alt="">` : "<span>▶</span>"}${p.video ? vbadge({video: {duration: p.duration}}) : ""}</span>
+    <div class="miss-txt"><small>${p.stripped ? "Vidéo sans heure ni lieu (copie faite par l'iPhone)" : p.approxTime ? "Heure inconnue" : `Prise à ${esc(T.F.time.format(new Date(p.at)))}, lieu inconnu`}</small>
+    <select data-assign aria-label="Ranger dans l'étape">${stopOpts(p.assign)}</select></div></div>`).join("") + (missing.length > 40 ? `<small>et ${missing.length - 40} autres : utilise le lieu ci-dessus</small>` : "");
   $("btn-skipmiss").hidden = !miss;
   $("coords").textContent = chosen ? fmtCoord(chosen.lat, chosen.lng) : "Aucune position choisie";
   if (withT < n) $("more").open = true;
@@ -1201,13 +1290,15 @@ $("f-photos").addEventListener("change", async e => {
     let preview = "";
     if (video){ try { const im = await decodeVideoFrame(f); try { preview = URL.createObjectURL(await toJpeg(im, 240, .7)); m.duration ||= im.duration; } finally { im.done(); } } catch(_){ preview = ""; } }
     else preview = await makePreview(f);
+    // L'iPhone donne au navigateur une copie de la vidéo sans ses informations (ni lieu, ni appareil, heure de l'export).
+    const stripped = video && !m.device && m.lat == null && m.timeSrc !== "vidéo (avec fuseau)";
     const stale = m.gpsStale;
     const key = `${Math.round((m.at ?? f.lastModified) / 1000)}|${m.device || ""}|${f.size}|${f.name}`;
     const dupOf = isDup(m), dup = !!dupOf;
     // Déjà publiée en qualité standard (Firestore) : on peut la passer en haute qualité sur Backblaze.
     const upgrade = !!(dupOf && S3CFG && !video && !dupOf.photoUrl && !dupOf.video && dupOf.hasPhoto);
     items[k] = {file:f, preview, key, dup, dupOf, upgrade, metaLat: stale ? null : m.lat, metaLng: stale ? null : m.lng, stale, staleLat: stale ? m.lat : null, staleLng: stale ? m.lng : null,
-      gpsAt: m.gpsAt, metaAt: m.at, timeSrc: m.timeSrc, device: m.device, video, duration: m.duration || null, vw: m.width, vh: m.height};
+      gpsAt: m.gpsAt, metaAt: m.at, timeSrc: stripped ? null : m.timeSrc, device: m.device, video, stripped, duration: m.duration || null, vw: m.width, vh: m.height};
     done++; bar.style.width = `${done / files.length * 100}%`;
     $("summary").innerHTML = `<div class="row"><b>…</b><span>Lecture : ${done} sur ${files.length}</span></div>`;
   });
@@ -1225,6 +1316,7 @@ const pickFor = all => { $("add").hidden = true; startPick(all ? "Touche l'endro
   if (ll){ chosen = {lat:ll.lat, lng:ll.lng, name:packPlace(T.pack, ll.lat, ll.lng), all}; $("f-place").value = ""; }
   $("add").hidden = false; renderAdd(); }); };
 $("btn-pick").onclick = () => pickFor(false);
+$("where-strip").addEventListener("change", e => { const s = e.target.closest("[data-assign]"); if (!s) return; const p = pending.find(x => x.key === s.closest("[data-key]").dataset.key); if (p){ p.assign = s.value || null; renderAdd(); } });
 $("btn-skipmiss").onclick = () => { pending.forEach(p => { if (!p.dup && p.lat == null){ p.dup = true; p.skipped = true; } }); renderAdd(); };
 $("btn-pick2").onclick = () => pickFor(true);
 
@@ -1308,7 +1400,8 @@ $("add-form").addEventListener("submit", async e => {
       const docData = { lat:p.lat, lng:p.lng, at:p.at, created:Date.now(), place, caption: inf.caption || inf.captionOld || "",
         thumb: await toBytes(small), hasPhoto: true, approxPos: !!p.approxPos, approxTime: !!p.approxTime, device: p.device || "",
         by: user.uid, byName: user.displayName || user.email || "", ...(p.gpsAt ? {gpsAt: p.gpsAt} : {}), ...(p.stale ? {gpsStale: true} : {}),
-        ...(p.inFlight ? {moving: true} : {}), ...(inf.arriveBy ? {arriveBy: inf.arriveBy} : {}), ...(video ? {video} : {}), ...(photo || {}) };
+        ...(p.inFlight ? {moving: true} : {}), ...(inf.arriveBy ? {arriveBy: inf.arriveBy} : {}), ...(video ? {video} : {}), ...(photo || {}),
+        ...(p.stopRef ? {stopRef: p.stopRef} : {}) };
       // La photo et l'étape sont écrites ensemble : tout ou rien.
       const b = writeBatch(db);
       if (!photo) b.set(doc(db, `trips/${tripId}/photos/${id}`), { data: await toBytes(big) });

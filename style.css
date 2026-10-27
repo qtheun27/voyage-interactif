@@ -495,3 +495,19 @@ img{max-width:100%}
 
 .where-strip .fi{display:flex;flex-direction:column;align-items:center;gap:2px}
 .where-strip .fi small{font:500 .7rem var(--f-mono);color:var(--muted)}
+
+/* ---------- Ranger : sélection d'étape, glisser-déposer ---------- */
+.row-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.miss{display:flex;gap:10px;align-items:center}
+.miss .fi img{width:56px;height:56px;border-radius:8px;object-fit:cover}
+.miss-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.miss-txt small{color:var(--muted);font-size:.78rem}
+.miss-txt select{min-height:38px;padding:6px 8px}
+.where-strip{flex-direction:column;align-items:stretch;gap:8px;overflow:visible}
+.drag-hint{margin:-4px 0 8px;color:var(--muted);font-size:.8rem}
+body.dragmode{-webkit-user-select:none;user-select:none}
+.stop{-webkit-touch-callout:none}
+.stop.dragging{opacity:.35}
+.stop.drop > button[data-open]{outline:3px dashed var(--accent);outline-offset:2px;background:color-mix(in srgb,var(--accent) 8%,var(--panel))}
+.drag-ghost{position:fixed;z-index:3000;list-style:none;pointer-events:none;box-shadow:var(--shadow);border-radius:12px;opacity:.95;transition:none}
+.drag-ghost::before{display:none}
