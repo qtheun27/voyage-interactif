@@ -32,6 +32,12 @@ test("hémisphères sud et ouest, fuseau négatif", () => {
   assert.ok(m.lat < -34.5 && m.lng < -58.3, `${m.lat},${m.lng}`);
   assert.equal(iso(m.at), "2026-01-10T12:00:00Z");
 });
+test("position GPS périmée (iPhone sans signal à l'atterrissage)", () => {
+  const m = interpretMeta(load("arrivee_gps_perime.jpg"), TZ);
+  assert.equal(iso(m.at), "2026-10-26T00:00:00Z");
+  assert.equal(m.gpsStale, true);
+  assert.equal(interpretMeta(load("gps_fuseau.jpg"), TZ).gpsStale, false);
+});
 test("sans métadonnées / pas un JPEG", () => {
   const m = interpretMeta(load("sans_meta.jpg"), TZ);
   assert.deepEqual([m.lat, m.lng, m.at], [null, null, null]);

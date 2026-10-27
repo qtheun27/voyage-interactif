@@ -9,7 +9,7 @@ import { firebaseConfig, OWNER_EMAIL, OWNER_NAME, emulators } from "./firebase-c
 import { toLocalInput, fromLocalInput } from "./lib/time.js";
 import { readMeta } from "./lib/exif.js";
 import { km, curve, fmtCoord, packPlace, reverseGeocode, searchPlaces, autoPlace, loadCountry, loadWorld, makeLand } from "./lib/geo.js";
-import { buildJourney, MODES } from "./lib/journey.js";
+import { buildJourney, estimatePosition, MODES } from "./lib/journey.js";
 import { loadPack, ICONS } from "./packs/index.js";
 
 const $ = id => document.getElementById(id);
@@ -549,7 +549,7 @@ const modeIcon = m => MODE_SVG[MODES[m]?.icon || "car"];
 
 function render(fit){
   if (!T.trip || !T.land) return;
-  T.J = buildJourney(T.photos, { dayKey, isWater: T.land.isWater, inCountry: T.land.inCountry, autoNames: T.autoNames });
+  T.J = buildJourney(T.photos, { dayKey, isWater: T.land.isWater, inCountry: T.land.inCountry, autoNames: T.autoNames, airport: T.pack?.airport });
   T.entries = T.J.timeline.filter(e => e.kind === "stop" || e.notable);
   if (T.filterDay != null && T.filterDay >= T.J.days.length) T.filterDay = null;
   T.flat = visibleEntries().flatMap(e => e.items.map((_, i) => ({e, i})));
@@ -959,23 +959,18 @@ function resolvePending(){
   // Heure : photo > GPS > heure choisie (estimée)
   const fallbackAt = fromLocalInput(T.tz, $("f-when").value) ?? Date.now();
   pending.forEach((p,i) => { p.at = p.metaAt ?? (fallbackAt + i*1000); p.approxTime = p.metaAt == null; });
-  // Position : photo > choix manuel > dans l'avion, entre deux photos situées > photo la plus proche dans le temps (moins de 3 h)
+  // Position : photo (GPS frais) > choix manuel > estimée : dans l'avion, à l'aéroport d'arrivée,
+  // ou d'après la photo la plus proche dans le temps. Un GPS périmé (mode avion) ne compte pas.
   const known = [...pending.filter(p => p.metaLat != null).map(p => ({at:p.at, lat:p.metaLat, lng:p.metaLng})),
     ...T.photos.filter(p => !p.approxPos).map(p => ({at:p.at, lat:p.lat, lng:p.lng}))].sort((a,b) => a.at - b.at);
   pending.forEach(p => {
-    p.approxPos = false;
+    p.approxPos = false; p.inFlight = false; p.estPlace = "";
     if (chosen && (p.metaLat == null || chosen.all)){ p.lat = chosen.lat; p.lng = chosen.lng; return; }
     if (p.metaLat != null){ p.lat = p.metaLat; p.lng = p.metaLng; return; }
-    if (p.approxTime){ p.lat = null; p.lng = null; return; }
-    const before = [...known].reverse().find(k => k.at <= p.at && p.at - k.at < 8*3600e3), after = known.find(k => k.at >= p.at && k.at - p.at < 8*3600e3);
-    if (before && after && after.at > before.at){
-      const d = km(before, after), v = d / ((after.at - before.at) / 3.6e6);
-      if (d > 30 && v > 150){ const f = (p.at - before.at) / (after.at - before.at);
-        p.lat = before.lat + (after.lat - before.lat) * f; p.lng = before.lng + (after.lng - before.lng) * f; p.approxPos = true; p.inFlight = true; return; }
-    }
-    let best = null, bd = 3*3600e3;
-    known.forEach(k => { const d = Math.abs(k.at - p.at); if (d < bd){ bd = d; best = k; } });
-    if (best){ p.lat = best.lat; p.lng = best.lng; p.approxPos = true; } else { p.lat = null; p.lng = null; }
+    const est = p.approxTime ? null : estimatePosition(p.at, known, { airport: T.pack?.airport, inCountry: T.land?.inCountry });
+    if (est){ p.lat = est.lat; p.lng = est.lng; p.approxPos = true; p.inFlight = !!est.inFlight; p.estPlace = est.place || ""; }
+    else if (p.staleLat != null){ p.lat = p.staleLat; p.lng = p.staleLng; p.approxPos = true; }
+    else { p.lat = null; p.lng = null; }
   });
 }
 function renderAdd(){
@@ -989,6 +984,7 @@ function renderAdd(){
   $("summary").innerHTML = `
     <div class="row"><b>${withT===n?"✓":"!"}</b><span>Heure lue dans ${withT===n?"toutes les photos":`${withT} photo${withT>1?"s":""} sur ${n}`}${src?` (source : ${esc(src)})`:""}${withT<n?". Les autres prennent l'heure indiquée plus bas.":""}</span></div>
     <div class="row"><b>${withG===n?"✓":miss?"!":"≈"}</b><span>Position lue dans ${withG===n?"toutes les photos":`${withG} photo${withG>1?"s":""} sur ${n}`}${est?`, ${est} placée${est>1?"s":""} d'après les photos prises juste avant ou après`:""}${miss?`, ${miss} sans lieu`:""}.</span></div>
+    ${pending.some(p => p.stale) ? `<div class="row"><b>≈</b><span>${pending.filter(p => p.stale).length} photo(s) avec une position GPS périmée (téléphone sans signal, par exemple à l'atterrissage) : placée(s) d'après le trajet.</span></div>` : ""}
     <div class="row"><b>↝</b><span>Les photos prises en route (avion, ferry, voiture) dessineront le trajet sur la carte.</span></div>
     ${chosen?`<div class="row"><b>✓</b><span>Placées sur : ${esc(chosen.name || fmtCoord(chosen.lat,chosen.lng))}</span></div>`:""}`;
   $("where").hidden = !miss && !chosen;
@@ -1025,7 +1021,9 @@ $("f-photos").addEventListener("change", async e => {
   $("progress").hidden = true; $("add-submit").disabled = false;
   for (const f of files){
     const m = await readMeta(f, T.tz); // sur l'original, avant toute compression
-    pending.push({file:f, preview:URL.createObjectURL(f), metaLat:m.lat, metaLng:m.lng, metaAt:m.at, timeSrc:m.timeSrc, device:m.device});
+    pending.push({file:f, preview:URL.createObjectURL(f), metaLat:m.gpsStale ? null : m.lat, metaLng:m.gpsStale ? null : m.lng,
+      stale:m.gpsStale, staleLat:m.gpsStale ? m.lat : null, staleLng:m.gpsStale ? m.lng : null, gpsAt:m.gpsAt,
+      metaAt:m.at, timeSrc:m.timeSrc, device:m.device});
   }
   pending.sort((a,b) => (a.metaAt ?? 9e15) - (b.metaAt ?? 9e15));
   renderAdd();
@@ -1063,11 +1061,12 @@ $("add-form").addEventListener("submit", async e => {
       try { big = await jpegUnder(im, 1600, 950000); small = await jpegUnder(im, 400, 60000, .78); } finally { im.done(); }
       setBar(.3);
       // Nom : celui tapé, sinon lieu du pack proche, sinon Nominatim (mis en cache dans le document).
-      const place = typed || (chosen && !p.metaLat ? chosen.name : "") || packPlace(T.pack, p.lat, p.lng)
+      const place = typed || (chosen && !p.metaLat ? chosen.name : "") || p.estPlace || packPlace(T.pack, p.lat, p.lng)
         || (pending.length === 1 ? autoName : "") || (p.inFlight ? "" : await reverseGeocode(p.lat, p.lng)) || (p.inFlight ? "" : autoName);
       const docData = { lat:p.lat, lng:p.lng, at:p.at, created:Date.now(), place, caption: firstCaption && i === 0 ? caption : "",
         thumb: await toBytes(small), hasPhoto: true, approxPos: !!p.approxPos, approxTime: !!p.approxTime, device: p.device || "",
-        by: user.uid, byName: user.displayName || user.email || "", ...(p.inFlight ? {moving: true} : {}) };
+        by: user.uid, byName: user.displayName || user.email || "", ...(p.gpsAt ? {gpsAt: p.gpsAt} : {}), ...(p.stale ? {gpsStale: true} : {}),
+        ...(p.inFlight ? {moving: true} : {}) };
       // La photo et l'étape sont écrites ensemble : tout ou rien.
       const b = writeBatch(db);
       b.set(doc(db, `trips/${tripId}/photos/${id}`), { data: await toBytes(big) });

@@ -4,6 +4,7 @@ export default {
   maxBounds: [[35.55,13.85],[36.3,14.9]],
   minZoom: 9.5,
   noteTitle: "Malta · Gozo · Comino",
+  airport: { name: "Aéroport de Malte (Luqa)", lat: 35.8575, lng: 14.4775 },
   places: [
     ["Valletta",35.8989,14.5146,1],["Mdina",35.8860,14.4030,1],["Victoria (Gozo)",36.0444,14.2397,1],
     ["Sliema",35.9122,14.5042],["St Julian's",35.9187,14.4890],["Paceville",35.9235,14.4880],["Gżira",35.9058,14.4950],["Floriana",35.8935,14.5060],

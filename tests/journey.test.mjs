@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { buildJourney } from "../lib/journey.js";
+import { buildJourney, estimatePosition } from "../lib/journey.js";
 import { makeLand } from "../lib/geo.js";
 
 const land = makeLand(JSON.parse(readFileSync("data/MLT.geojson")), JSON.parse(readFileSync("data/world-land.geojson")));
@@ -58,4 +58,42 @@ test("choix manuels : mode imposé, photo « arrêt », étiquette", () => {
   assert.equal(j.legs[0].mode, "bus"); assert.equal(j.stops[1].tag, "Hôtel");
   const w = ph(36.0010, 14.3150, T(26, 8, 10), { still: true });
   assert.equal(buildJourney([w], opts).stops.length, 1);
+});
+
+test("vol de nuit : photo d'arrivée sans GPS fiable placée à l'aéroport, pas une étape belge", () => {
+  const airport = { name: "Aéroport de Malte (Luqa)", lat: 35.8575, lng: 14.4775 };
+  const known = [
+    { at: Date.UTC(2026, 9, 25, 18, 8), lat: 50.4661, lng: 4.4824 },    // départ, rue d'Heppignies
+    { at: Date.UTC(2026, 9, 25, 21, 39), lat: 50.4688, lng: 4.4710 },   // aéroport de Charleroi
+    { at: Date.UTC(2026, 9, 26, 7, 26), lat: 35.9617, lng: 14.3591 }    // hôtel, Għadira
+  ];
+  const arr = estimatePosition(Date.UTC(2026, 9, 26, 0, 0), known, { airport, inCountry: land.inCountry });
+  assert.equal(arr.atArrival, true); assert.equal(arr.lat, airport.lat); assert.equal(arr.place, airport.name);
+  const mid = estimatePosition(Date.UTC(2026, 9, 25, 22, 45), known, { airport, inCountry: land.inCountry });
+  assert.equal(mid.inFlight, true); assert.ok(mid.lat < 50 && mid.lat > 36, String(mid.lat));
+  // Le récit qui en découle : départ, vol aller, arrivée à l'aéroport, puis l'hôtel
+  const ps = [
+    ph(50.4661, 4.4824, Date.UTC(2026, 9, 25, 18, 8)), ph(50.4685, 4.4697, Date.UTC(2026, 9, 25, 21, 21)), ph(50.4688, 4.4710, Date.UTC(2026, 9, 25, 21, 39)),
+    ph(arr.lat, arr.lng, Date.UTC(2026, 9, 26, 0, 0), { approxPos: true, tag: "Arrivée" }),
+    ph(35.9617, 14.3591, Date.UTC(2026, 9, 26, 7, 26))
+  ];
+  const j = buildJourney(ps, opts);
+  const names = j.timeline.map(e => e.kind === "stop" ? `S${e.items.length}${e.tag ? "·" + e.tag : ""}` : e.label);
+  assert.deepEqual(names, ["S1·Départ", "À pied", "S2", "Vol aller", "S1·Arrivée", "En voiture", "S1"]);
+  assert.ok(j.legs.find(l => l.label === "Vol aller").to.at - j.legs.find(l => l.label === "Vol aller").from.end < 3 * 3600e3);
+});
+
+test("données existantes : photos « Arrivée » restées sur Charleroi, affichées à l'aéroport de Malte", () => {
+  const airport = { name: "Aéroport de Malte (Luqa)", lat: 35.8575, lng: 14.4775 };
+  const ps = [
+    ph(50.4661, 4.4824, Date.UTC(2026, 9, 25, 18, 8)), ph(50.4685, 4.4697, Date.UTC(2026, 9, 25, 21, 21)), ph(50.4688, 4.4710, Date.UTC(2026, 9, 25, 21, 39)),
+    ph(50.4660, 4.4698, Date.UTC(2026, 9, 26, 0, 0), { tag: "Arrivée", caption: "Arrivée à Malte" }), ph(50.4660, 4.4698, Date.UTC(2026, 9, 26, 0, 0)),
+    ph(35.9617, 14.3591, Date.UTC(2026, 9, 26, 7, 26)), ph(35.9617, 14.3591, Date.UTC(2026, 9, 26, 8, 55))
+  ];
+  const j = buildJourney(ps, { ...opts, airport });
+  const names = j.timeline.map(e => e.kind === "stop" ? `S${e.items.length}${e.tag ? "·" + e.tag : ""}` : e.label);
+  assert.deepEqual(names, ["S1·Départ", "À pied", "S2", "Vol aller", "S2·Arrivée", "En voiture", "S1", "À pied", "S1"]);
+  const arr = j.stops.find(s => s.tag === "Arrivée");
+  assert.equal(arr.place, airport.name); assert.equal(arr.out, false);
+  assert.equal(j.legs.find(l => l.mode === "plane").label, "Vol aller");
 });

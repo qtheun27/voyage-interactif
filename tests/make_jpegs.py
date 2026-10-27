@@ -37,6 +37,13 @@ e.get_ifd(0x8769)[0x9003] = "2026:01:10 09:00:00"; e.get_ifd(0x8769)[0x9011] = "
 g = e.get_ifd(0x8825); g[1] = "S"; g[2] = (34.0, 36.0, 0.0); g[3] = "W"; g[4] = (58.0, 22.0, 48.0)
 jpeg("sud_ouest.jpg", e)
 
+# 4b. Arrivée à Malte à 01:00, mais GPS resté sur Charleroi (point GPS de 21:39 UTC) : position périmée
+e = Image.Exif(); e[0x010F] = "Apple"; e[0x0110] = "iPhone 15 Pro Max"
+e.get_ifd(0x8769)[0x9003] = "2026:10:26 01:00:00"; e.get_ifd(0x8769)[0x9011] = "+01:00"
+g = e.get_ifd(0x8825); g[1] = "N"; g[2] = (50.0, 27.0, 57.64); g[3] = "E"; g[4] = (4.0, 28.0, 11.39)
+g[7] = (21.0, 39.0, 0.0); g[29] = "2026:10:25"
+jpeg("arrivee_gps_perime.jpg", e)
+
 # 5. Aucune métadonnée
 jpeg("sans_meta.jpg")
 print("ok", sorted(p.name for p in out.iterdir()))
