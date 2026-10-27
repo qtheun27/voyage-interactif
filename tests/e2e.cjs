@@ -49,6 +49,7 @@ const log = (...a) => console.log('•', ...a);
   await p.waitForFunction(() => !document.querySelector('#add').hidden && document.querySelectorAll('#plan .plan-item').length >= 2);
   log('résumé :', (await p.textContent('#summary')).replace(/\s+/g, ' ').trim());
   log('plan :', await p.$$eval('#plan .plan-item input', els => els.map(e => e.value).join(' | ')), '| zone "où" visible :', await p.isVisible('#where'));
+  log('photos sans lieu montrées :', await p.$$eval('#where-strip .fi small', e => e.map(x => x.textContent).join(', ')));
   await p.screenshot({ path: OUT + '/3-ajout.png' });
   await p.selectOption('#f-place', { label: 'Mdina' });
   await p.waitForFunction(() => document.querySelectorAll('#plan .plan-item.stop').length === 3);
