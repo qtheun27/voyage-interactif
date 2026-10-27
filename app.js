@@ -191,8 +191,12 @@ function imgUrl(key, bytes){
 }
 /* Photo en grand : chargée à la demande depuis trips/{id}/photos/{stop}. */
 const fullLoads = new Map();
+/* La photo en grand : sur Backblaze (photoUrl, haute définition) si elle y est, sinon dans Firestore.
+   On ne la montre qu'une fois chargée : en cas d'échec, la miniature reste affichée. */
 function fullPhoto(tripId, stopId){
   const k = `${tripId}/${stopId}`;
+  const url = T.id === tripId ? T.photos.find(x => x.id === stopId)?.photoUrl : null;
+  if (url && !fullLoads.has(k)) fullLoads.set(k, new Promise(res => { const im = new Image(); im.onload = () => res(url); im.onerror = () => { fullLoads.delete(k); res(null); }; im.src = url; }));
   if (!fullLoads.has(k)) fullLoads.set(k, getDoc(doc(db, `trips/${tripId}/photos/${stopId}`))
     .then(s => s.exists() ? imgUrl("full:" + k, s.data().data) : null)
     .catch(() => { fullLoads.delete(k); return null; }));
@@ -870,7 +874,7 @@ async function deleteItems(items){
   const b = writeBatch(db);
   items.forEach(it => { b.delete(stopRef(it.id)); if (it.hasPhoto) b.delete(doc(db, `trips/${T.id}/photos/${it.id}`)); });
   await b.commit();
-  if (S3CFG) items.filter(it => it.video?.key).forEach(it => deleteFile(S3CFG, it.video.key));
+  if (S3CFG) items.forEach(it => { if (it.video?.key) deleteFile(S3CFG, it.video.key); if (it.photoKey) deleteFile(S3CFG, it.photoKey); });
 }
 $("lb-editbtn").onclick = () => {
   const { e, i } = lbCur(), it = e.items[i], isStop = e.kind === "stop";
@@ -1251,8 +1255,17 @@ $("add-form").addEventListener("submit", async e => {
       const id = doc(collection(db, `trips/${tripId}/stops`)).id;
       if (p.video && !S3CFG) throw Object.assign(new Error("novideo"), { novideo: true });
       const im = p.video ? await decodeVideoFrame(p.file) : await decodeImage(p.file);
+      // Photo en grand : 2560 px sur Backblaze quand il est branché (qualité), sinon 1600 px dans Firestore.
+      const hd = S3CFG && !p.video;
       let big, small;
-      try { big = await jpegUnder(im, 1600, 950000); small = await jpegUnder(im, 400, 60000, .78); } finally { im.done(); }
+      try { big = hd ? await toJpeg(im, 2560, .88) : await jpegUnder(im, 1600, 950000); small = await jpegUnder(im, 400, 60000, .78); } finally { im.done(); }
+      let photo = null;
+      if (hd){
+        const rnd = [...crypto.getRandomValues(new Uint8Array(12))].map(x => x.toString(16).padStart(2, "0")).join("");
+        const key = `voyages/${tripId}/${id}-${rnd}.jpg`;
+        await putFile(S3CFG, key, big, { contentType: "image/jpeg" });
+        photo = { photoUrl: publicUrl(S3CFG, key), photoKey: key };
+      }
       // La vidéo elle-même part sur Backblaze (en morceaux, avec reprise) ; son affiche reste dans Firestore.
       let video = null;
       if (p.video){
@@ -1269,10 +1282,10 @@ $("add-form").addEventListener("submit", async e => {
       const docData = { lat:p.lat, lng:p.lng, at:p.at, created:Date.now(), place, caption: inf.caption || inf.captionOld || "",
         thumb: await toBytes(small), hasPhoto: true, approxPos: !!p.approxPos, approxTime: !!p.approxTime, device: p.device || "",
         by: user.uid, byName: user.displayName || user.email || "", ...(p.gpsAt ? {gpsAt: p.gpsAt} : {}), ...(p.stale ? {gpsStale: true} : {}),
-        ...(p.inFlight ? {moving: true} : {}), ...(inf.arriveBy ? {arriveBy: inf.arriveBy} : {}), ...(video ? {video} : {}) };
+        ...(p.inFlight ? {moving: true} : {}), ...(inf.arriveBy ? {arriveBy: inf.arriveBy} : {}), ...(video ? {video} : {}), ...(photo || {}) };
       // La photo et l'étape sont écrites ensemble : tout ou rien.
       const b = writeBatch(db);
-      b.set(doc(db, `trips/${tripId}/photos/${id}`), { data: await toBytes(big) });
+      if (!photo) b.set(doc(db, `trips/${tripId}/photos/${id}`), { data: await toBytes(big) });
       b.set(doc(db, `trips/${tripId}/stops/${id}`), docData);
       T.mine.add(id);
       await b.commit();
