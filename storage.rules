@@ -1,0 +1,29 @@
+rules_version = '2';
+// Voyage interactif : tout est sous voyages/{tripId}/…
+// En cas de fusion, copier seulement le bloc entre DÉBUT et FIN dans match /b/{bucket}/o existant.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ===== DÉBUT VOYAGE INTERACTIF =====
+    function viIsEditor() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.email_verified == true
+        && (request.auth.token.email == 'q.theuninck@gmail.com'
+            || request.auth.token.email in firestore.get(/databases/(default)/documents/config/editors).data.emails);
+    }
+    function viIsMember(tripId) {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/trips/$(tripId)/members/$(request.auth.uid));
+    }
+
+    match /voyages/{tripId}/{allPaths=**} {
+      allow read: if viIsMember(tripId) || viIsEditor();
+      allow create, update: if viIsEditor()
+        && request.resource.size < 20 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if viIsEditor();
+    }
+    // ===== FIN VOYAGE INTERACTIF =====
+  }
+}

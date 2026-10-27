@@ -1,0 +1,19 @@
+{
+  "name": "voyage-interactif",
+  "private": true,
+  "type": "module",
+  "description": "Outils de test seulement : le site est statique, sans build.",
+  "scripts": {
+    "test": "node --test tests/time.test.mjs tests/exif.test.mjs",
+    "test:rules": "firebase emulators:exec --only firestore,storage,auth --project demo-voyage \"node --test tests/rules.test.mjs\"",
+    "emulators": "firebase emulators:start --only firestore,storage,auth --project demo-voyage",
+    "test:e2e": "node tests/e2e.cjs"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "firebase": "^10.14.1",
+    "firebase-tools": "^13.35.1",
+    "leaflet": "1.9.4",
+    "exifr": "7.1.3"
+  }
+}
