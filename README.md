@@ -49,6 +49,15 @@ Avec la CLI : `npx firebase deploy --only firestore:rules` (après avoir mis l'i
 
 Pour les proches : écran d'accueil du voyage, **Revivre le voyage** (la carte suit le parcours, l'avion et le bateau avancent, les photos défilent en diaporama), visionneuse plein écran qui enchaîne toutes les photos du voyage au doigt, onglet **Photos** (galerie par jour), message quand une nouvelle photo arrive.
 
+## Vidéos (Backblaze B2)
+
+- Les vidéos (MOV d'iPhone, MP4) partent **telles quelles** sur un seau Backblaze B2 public (10 Go gratuits, sans carte), sous un nom aléatoire impossible à deviner ; seule leur adresse est enregistrée dans Firestore, lisible par les membres du voyage.
+- Date avec fuseau, position GPS, durée et appareil sont lus dans la vidéo (`lib/mov.js`, boîte « moov » seulement). Une image vers 1 s sert d'affiche (carte, carnet, galerie).
+- Envoi direct depuis le téléphone de l'éditeur avec des URL présignées S3 (`lib/s3.js`, signature V4) ; au-delà de 32 Mo, en morceaux de 16 Mo, 3 à la fois, chacun réessayé.
+- Visionneuse : lecture intégrée ; « Revivre le voyage » : la vidéo passe en entier (30 s au plus), muette par défaut, bouton son.
+- Réglages : *Réglages du voyage > Vidéos* (propriétaire) : point d'accès S3, seau, keyID, applicationKey, adresse publique, bouton **Tester**. Enregistrés dans `config/storage`, lisibles par les seuls éditeurs.
+- Le seau doit être **public** et avoir une règle CORS autorisant `https://qtheun27.github.io` pour `s3_put`, `s3_post`, `s3_get`, `s3_head`, `s3_delete`, avec l'en-tête `ETag` exposé.
+
 ## Pays et packs
 
 - Fond du monde (aller-retour) : `data/world-land.geojson`, Natural Earth 1:50m (domaine public), simplifié.
@@ -60,11 +69,11 @@ Pour les proches : écran d'accueil du voyage, **Revivre le voyage** (la carte s
 
 ```sh
 npm install
-npm test                 # lecteur EXIF, heures autour du 25/10/2026, étapes et trajets
+npm test                 # EXIF, heures autour du 25/10/2026, étapes et trajets, vidéos (MOV/MP4), signature S3
 npm run test:rules       # règles Firestore avec l'émulateur (Java requis)
 python3 tests/make_jpegs.py   # régénère les JPEG de test
 # Parcours complet dans Chromium (Playwright requis) :
-npm run emulators & python3 -m http.server 8000 --bind 127.0.0.1 & npm run test:e2e
+npm run emulators & npm run mock-s3 & python3 -m http.server 8000 --bind 127.0.0.1 & npm run test:e2e
 ```
 
 ## Limites du forfait gratuit
