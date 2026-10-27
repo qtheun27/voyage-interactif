@@ -1155,7 +1155,7 @@ async function nameNewStops(){
 }
 function renderAdd(){
   resolvePending(); buildPlan(); renderPlan(); nameNewStops();
-  const act = pending.filter(p => !p.dup), n = act.length, ups = pending.filter(p => p.upgrade && !p.sent).length, dup = pending.length - n - ups;
+  const act = pending.filter(p => !p.dup), n = act.length, ups = pending.filter(p => p.upgrade && !p.sent).length, skipped = pending.filter(p => p.skipped).length, dup = pending.length - n - ups - skipped;
   const withT = act.filter(p => !p.approxTime).length, withG = act.filter(p => p.metaLat != null).length;
   const est = act.filter(p => p.approxPos).length, miss = act.filter(p => p.lat == null).length;
   const stops = plan.filter(x => x.e.kind === "stop").length, legs = plan.filter(x => x.e.kind === "leg");
@@ -1172,6 +1172,10 @@ function renderAdd(){
     ${chosen?`<div class="row"><b>✓</b><span>Placées sur : ${esc(chosen.name || fmtCoord(chosen.lat,chosen.lng))}</span></div>`:""}`;
   $("where").hidden = !miss && !chosen;
   $("where-title").textContent = miss ? `${miss} photo${miss>1?"s":""} sans position. Où était-ce ?` : "Lieu choisi";
+  // Les photos concernées, avec leur heure : on sait de quoi on parle.
+  const missing = act.filter(p => p.lat == null || (chosen && p.metaLat == null));
+  $("where-strip").innerHTML = missing.slice(0, 12).map(p => `<span class="fi">${p.preview ? `<img src="${p.preview}" alt="">` : "<span>▶</span>"}${p.video ? vbadge({video: {duration: p.duration}}) : ""}<small>${p.approxTime ? "heure ?" : esc(T.F.time.format(new Date(p.at)))}</small></span>`).join("") + (missing.length > 12 ? `<span>+${missing.length - 12}</span>` : "");
+  $("btn-skipmiss").hidden = !miss;
   $("coords").textContent = chosen ? fmtCoord(chosen.lat, chosen.lng) : "Aucune position choisie";
   if (withT < n) $("more").open = true;
   $("add-title").textContent = n > 1 ? `${n} nouvelles photos` : n ? "Nouvelle photo" : ups ? "Passer en haute qualité" : "Rien de nouveau";
@@ -1221,6 +1225,7 @@ const pickFor = all => { $("add").hidden = true; startPick(all ? "Touche l'endro
   if (ll){ chosen = {lat:ll.lat, lng:ll.lng, name:packPlace(T.pack, ll.lat, ll.lng), all}; $("f-place").value = ""; }
   $("add").hidden = false; renderAdd(); }); };
 $("btn-pick").onclick = () => pickFor(false);
+$("btn-skipmiss").onclick = () => { pending.forEach(p => { if (!p.dup && p.lat == null){ p.dup = true; p.skipped = true; } }); renderAdd(); };
 $("btn-pick2").onclick = () => pickFor(true);
 
 $("add-form").addEventListener("submit", async e => {

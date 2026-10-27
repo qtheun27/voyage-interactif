@@ -492,3 +492,6 @@ img{max-width:100%}
 #st-sound[aria-pressed="true"] .i-on{display:block}
 #st-sound[aria-pressed="true"] .i-off{display:none}
 #st-sound svg{width:20px;height:20px}
+
+.where-strip .fi{display:flex;flex-direction:column;align-items:center;gap:2px}
+.where-strip .fi small{font:500 .7rem var(--f-mono);color:var(--muted)}
