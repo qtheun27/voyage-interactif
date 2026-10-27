@@ -1069,10 +1069,11 @@ async function pool(list, n, fn){
 function dupChecker(){
   const bySec = new Map();
   T.photos.forEach(p => { if (!p.hasPhoto) return; const k = Math.round(p.at / 1000) + "|" + (p.device || ""); if (!bySec.has(k)) bySec.set(k, []); bySec.get(k).push(p); });
+  // Renvoie la photo déjà publiée qui correspond (ou null).
   return m => {
-    if (m.at == null) return false;
+    if (m.at == null) return null;
     const l = bySec.get(Math.round(m.at / 1000) + "|" + (m.device || ""));
-    return !!l && l.some(x => m.lat == null || m.gpsStale || x.gpsStale || x.approxPos || km(x, {lat: m.lat, lng: m.lng}) < .05);
+    return l?.find(x => m.lat == null || m.gpsStale || x.gpsStale || x.approxPos || km(x, {lat: m.lat, lng: m.lng}) < .05) || null;
   };
 }
 
@@ -1154,7 +1155,7 @@ async function nameNewStops(){
 }
 function renderAdd(){
   resolvePending(); buildPlan(); renderPlan(); nameNewStops();
-  const act = pending.filter(p => !p.dup), n = act.length, dup = pending.length - n;
+  const act = pending.filter(p => !p.dup), n = act.length, ups = pending.filter(p => p.upgrade && !p.sent).length, dup = pending.length - n - ups;
   const withT = act.filter(p => !p.approxTime).length, withG = act.filter(p => p.metaLat != null).length;
   const est = act.filter(p => p.approxPos).length, miss = act.filter(p => p.lat == null).length;
   const stops = plan.filter(x => x.e.kind === "stop").length, legs = plan.filter(x => x.e.kind === "leg");
@@ -1166,15 +1167,16 @@ function renderAdd(){
     <div class="row"><b>↝</b><span>Rangement automatique : <b>${stops} étape${stops>1?"s":""}</b>${legs.length ? ` et <b>${legs.length} trajet${legs.length>1?"s":""}</b> dessiné${legs.length>1?"s":""} par les photos prises en route` : ""}. Vérifie les noms ci-dessous, tout reste modifiable ensuite.</span></div>
     ${act.some(p => p.video) ? (S3CFG ? `<div class="row"><b>▶</b><span>${act.filter(p => p.video).length} vidéo(s), ${(act.filter(p => p.video).reduce((a, p) => a + p.file.size, 0) / 1e6).toFixed(0)} Mo à envoyer.</span></div>`
       : `<div class="row"><b>!</b><span>${act.filter(p => p.video).length} vidéo(s) : le stockage des vidéos n'est pas encore configuré (Réglages du voyage > Vidéos). Les photos partent quand même.</span></div>`) : ""}
+    ${ups ? `<div class="row"><b>✦</b><span><b>${ups} photo${ups>1?"s":""} déjà publiée${ups>1?"s":""}</b> en qualité standard : ${ups>1?"elles seront remplacées":"elle sera remplacée"} par la version haute qualité. Noms, petits mots, étapes et réglages sont gardés.</span></div>` : ""}
     ${dup ? `<div class="row"><b>⤼</b><span>${dup} photo${dup>1?"s":""} déjà publiée${dup>1?"s":""} : ignorée${dup>1?"s":""}.</span></div>` : ""}
     ${chosen?`<div class="row"><b>✓</b><span>Placées sur : ${esc(chosen.name || fmtCoord(chosen.lat,chosen.lng))}</span></div>`:""}`;
   $("where").hidden = !miss && !chosen;
   $("where-title").textContent = miss ? `${miss} photo${miss>1?"s":""} sans position. Où était-ce ?` : "Lieu choisi";
   $("coords").textContent = chosen ? fmtCoord(chosen.lat, chosen.lng) : "Aucune position choisie";
   if (withT < n) $("more").open = true;
-  $("add-title").textContent = n > 1 ? `${n} nouvelles photos` : n ? "Nouvelle photo" : "Rien de nouveau";
-  $("add-submit").textContent = n > 1 ? `Publier les ${n} photos` : "Publier";
-  $("add-submit").disabled = !n || adding;
+  $("add-title").textContent = n > 1 ? `${n} nouvelles photos` : n ? "Nouvelle photo" : ups ? "Passer en haute qualité" : "Rien de nouveau";
+  $("add-submit").textContent = !n && ups ? `Améliorer ${ups > 1 ? `les ${ups} photos` : "la photo"}` : n > 1 ? `Publier les ${n} photos${ups ? ` (+ ${ups} en HD)` : ""}` : `Publier${ups ? ` (+ ${ups} en HD)` : ""}`;
+  $("add-submit").disabled = !(n || ups) || adding;
 }
 $("f-when").addEventListener("change", renderAdd);
 $("f-photos").addEventListener("change", async e => {
@@ -1197,8 +1199,10 @@ $("f-photos").addEventListener("change", async e => {
     else preview = await makePreview(f);
     const stale = m.gpsStale;
     const key = `${Math.round((m.at ?? f.lastModified) / 1000)}|${m.device || ""}|${f.size}|${f.name}`;
-    const dup = isDup(m);
-    items[k] = {file:f, preview, key, dup, metaLat: stale ? null : m.lat, metaLng: stale ? null : m.lng, stale, staleLat: stale ? m.lat : null, staleLng: stale ? m.lng : null,
+    const dupOf = isDup(m), dup = !!dupOf;
+    // Déjà publiée en qualité standard (Firestore) : on peut la passer en haute qualité sur Backblaze.
+    const upgrade = !!(dupOf && S3CFG && !video && !dupOf.photoUrl && !dupOf.video && dupOf.hasPhoto);
+    items[k] = {file:f, preview, key, dup, dupOf, upgrade, metaLat: stale ? null : m.lat, metaLng: stale ? null : m.lng, stale, staleLat: stale ? m.lat : null, staleLng: stale ? m.lng : null,
       gpsAt: m.gpsAt, metaAt: m.at, timeSrc: m.timeSrc, device: m.device, video, duration: m.duration || null, vw: m.width, vh: m.height};
     done++; bar.style.width = `${done / files.length * 100}%`;
     $("summary").innerHTML = `<div class="row"><b>…</b><span>Lecture : ${done} sur ${files.length}</span></div>`;
@@ -1223,9 +1227,9 @@ $("add-form").addEventListener("submit", async e => {
   e.preventDefault();
   if (adding) return;
   resolvePending(); buildPlan();
-  const todo = pending.filter(p => !p.sent && !p.dup);
+  const todo = pending.filter(p => !p.sent && (!p.dup || p.upgrade));
   if (!todo.length) return;
-  if (todo.some(p => p.lat == null)){ addMsg("Indique où ont été prises les photos sans position (recherche, liste ou carte).", true); $("where").scrollIntoView({block:"center"}); return; }
+  if (todo.some(p => !p.upgrade && p.lat == null)){ addMsg("Indique où ont été prises les photos sans position (recherche, liste ou carte).", true); $("where").scrollIntoView({block:"center"}); return; }
   // Ce que le plan dit de chaque photo : nom de l'étape, petit mot, mode du trajet
   const info = new Map();
   plan.forEach(pl => {
@@ -1251,6 +1255,23 @@ $("add-form").addEventListener("submit", async e => {
   tick();
   await pool(todo, 2, async p => {
     if (fatal) return;
+    // Photo déjà publiée : seule l'image en grand change (2560 px sur Backblaze), tout le reste est gardé.
+    if (p.upgrade){
+      try {
+        const x = p.dupOf, im = await decodeImage(p.file);
+        let big; try { big = await toJpeg(im, 2560, .88); } finally { im.done(); }
+        const rnd = [...crypto.getRandomValues(new Uint8Array(12))].map(v => v.toString(16).padStart(2, "0")).join("");
+        const key = `voyages/${tripId}/${x.id}-${rnd}.jpg`;
+        await putFile(S3CFG, key, big, { contentType: "image/jpeg" });
+        const b = writeBatch(db);
+        b.update(doc(db, `trips/${tripId}/stops/${x.id}`), { photoUrl: publicUrl(S3CFG, key), photoKey: key });
+        b.delete(doc(db, `trips/${tripId}/photos/${x.id}`));
+        await b.commit();
+        fullLoads.delete(`${tripId}/${x.id}`);
+        p.sent = true; done++;
+      } catch(err){ failed++; if (["resource-exhausted", "permission-denied", "unauthenticated"].includes(err?.code)) fatal = err.code; }
+      tick(); return;
+    }
     try {
       const id = doc(collection(db, `trips/${tripId}/stops`)).id;
       if (p.video && !S3CFG) throw Object.assign(new Error("novideo"), { novideo: true });
@@ -1304,7 +1325,8 @@ $("add-form").addEventListener("submit", async e => {
   const bad = todo.filter(p => p.badFormat).length, rest = todo.filter(p => !p.sent).length, novid = todo.filter(p => p.noVideoStore).length;
   if (!rest){
     bar.style.width = "100%"; closeAdd(); T.filterDay = null;
-    toast(done > 1 ? `${done} photos publiées` : "Photo publiée");
+    const hd = todo.filter(p => p.upgrade).length, nw = done - hd;
+    toast([nw ? (nw > 1 ? `${nw} photos publiées` : "Photo publiée") : "", hd ? `${hd} passée${hd>1?"s":""} en haute qualité` : ""].filter(Boolean).join(" · "));
     return;
   }
   pending = pending.filter(p => !p.sent || p.dup);
