@@ -1,21 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7fd0d6"/><stop offset="1" stop-color="#2f8fa3"/></linearGradient>
-    <linearGradient id="cv" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e8483f"/><stop offset="1" stop-color="#b52a24"/></linearGradient>
-  </defs>
-  <rect width="512" height="512" fill="url(#bg)"/>
-  <path d="M0 380 q64 -22 128 0 t128 0 t128 0 t128 0 V512 H0z" fill="#ffffff" opacity=".14"/>
-  <g transform="rotate(-8 256 270)">
-    <rect x="132" y="104" width="252" height="320" rx="26" fill="#13262d" opacity=".25" transform="translate(10 14)"/>
-    <rect x="132" y="104" width="252" height="320" rx="26" fill="url(#cv)"/>
-    <rect x="132" y="104" width="44" height="320" rx="22" fill="#9b221d"/>
-    <rect x="152" y="104" width="10" height="320" fill="#f7ecd0" opacity=".9"/>
-    <rect x="340" y="104" width="16" height="320" fill="#f2c14a"/>
-    <circle cx="272" cy="232" r="62" fill="none" stroke="#f7ecd0" stroke-width="7"/>
-    <path d="M272 168 l17 64 -17 64 -17 -64z" fill="#f7ecd0"/>
-    <path d="M272 168 l17 64 h-34z" fill="#f2c14a"/>
-    <path d="M208 232 l64 -12 64 12 -64 12z" fill="#f7ecd0" opacity=".85"/>
-    <path d="M200 350 q36 -26 72 -6 t72 -10" fill="none" stroke="#f7ecd0" stroke-width="6" stroke-linecap="round" stroke-dasharray="2 14"/>
-    <circle cx="344" cy="334" r="9" fill="#f7ecd0"/>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs>
+  <filter id="ink" x="-10%" y="-10%" width="120%" height="120%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="big"/>
+    <feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="1" seed="3" result="fine"/>
+    <feDisplacementMap in="SourceGraphic" in2="big" scale="5" xChannelSelector="R" yChannelSelector="G" result="wob"/>
+    <feColorMatrix in="fine" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.5 1.42" result="speck"/>
+    <feColorMatrix in="big" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -2.6 2.2" result="press"/>
+    <feComposite in="speck" in2="press" operator="arithmetic" k1="1" result="holes"/>
+    <feComposite in="wob" in2="holes" operator="in"/>
+  </filter>
+  <filter id="paper"><feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="3" seed="2"/><feColorMatrix values="0 0 0 0 .42  0 0 0 0 .34  0 0 0 0 .2  0 0 0 .09 0"/></filter>
+</defs><rect width="512" height="512" fill="#f4e8cc"/><rect width="512" height="512" filter="url(#paper)"/><g filter="url(#ink)" transform="rotate(-8 120.0 105.0)" fill="#b8322a" stroke="#b8322a" opacity=".85">
+  <rect x="-70" y="40" width="380" height="130" rx="10" fill="none" stroke-width="9"/>
+  <rect x="-56" y="54" width="352" height="102" rx="4" fill="none" stroke-width="3"/>
+  <text stroke="none" x="120.0" y="127.4" text-anchor="middle" font-family="Georgia, 'DejaVu Serif', serif" font-weight="700" font-size="64" letter-spacing="6">PAR AVION</text>
+</g><g filter="url(#ink)" transform="rotate(11 290 300)" fill="#1f5fa8" stroke="#1f5fa8">
+  <circle cx="290" cy="300" r="205" fill="none" stroke-width="15.4"/>
+  <circle cx="290" cy="300" r="164.0" fill="none" stroke-width="5.1"/>
+  <circle cx="290" cy="300" r="102.5" fill="none" stroke-width="5.1"/>
+  <path id="t290" d="M156.8 300 a133.2 133.2 0 0 1 266.5 0" fill="none" stroke="none"/>
+  <path id="b290" d="M138.3 300 a151.7 151.7 0 0 0 303.4 0" fill="none" stroke="none"/>
+  <text stroke="none" font-family="Georgia, 'DejaVu Serif', serif" font-weight="700" font-size="39.0" letter-spacing="6.1"><textPath href="#t290" startOffset="50%" text-anchor="middle">MON CARNET</textPath></text>
+  <text stroke="none" font-family="Georgia, 'DejaVu Serif', serif" font-weight="700" font-size="26.7" letter-spacing="8.2"><textPath href="#b290" startOffset="50%" text-anchor="middle">DE VOYAGES</textPath></text>
+  <text stroke="none" x="162.9" y="310.2" font-size="26.7" text-anchor="middle">★</text>
+  <text stroke="none" x="417.1" y="310.2" font-size="26.7" text-anchor="middle">★</text>
+  <path stroke="none" d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" transform="translate(290 300) rotate(45) scale(6.560) translate(-11.5 -12)"/>
+  
+</g></svg>
