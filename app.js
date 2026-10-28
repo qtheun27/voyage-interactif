@@ -1208,20 +1208,14 @@ function renderMap(fit){
   const vis = visibleEntries(), stops = vis.filter(e => e.kind === "stop"), last = T.J.stops[T.J.stops.length-1];
   const legs = T.J.legs.filter(l => T.filterDay == null || l.day === T.filterDay);
   T.layers.pins.clearLayers(); T.layers.legpics.clearLayers();
+  // Une carte lisible : un point numéroté par lieu visité, son nom à côté ; les photos restent dans le carnet.
   stops.forEach(g => {
-    const ph = g.items.filter(x => x.thumbUrl).length;
-    const cls = ["pin", ph>1?"stack":"", g.approx?"approx":"", last&&g.id===last.id?"latest":"", g.id===T.active?"active":""].join(" ");
-    const html = `<div class="${cls}" style="--dc:${dc(g.day)}"><div class="card">${g.cover?`<img src="${esc(g.cover)}" alt="">`:`<div class="noimg">${pinSvg}</div>`}${g.items.some(x => x.video) ? '<span class="pinplay"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>' : ""}</div><span class="num">${g.n}</span>${ph>1?`<span class="count">${ph}</span>`:""}${g.tag?`<span class="pinflag">${esc(g.tag)}</span>`:""}</div>`;
+    const cls = ["dot", g.approx?"approx":"", last&&g.id===last.id?"latest":"", g.id===T.active?"active":"", g.tag?"tagged":""].join(" ");
+    const html = `<div class="${cls}" style="--dc:${dc(g.day)}"><span class="num">${g.n}</span><span class="dot-lbl">${esc(g.place || "Étape")}${g.tag ? ` <i>${esc(g.tag)}</i>` : ""}</span></div>`;
     const m = L.marker([g.lat,g.lng], {icon:L.divIcon({className:"stop-pin", html, iconSize:[0,0]}), title:g.place||"Étape", zIndexOffset:g.n*10 + (g.id===T.active?5000:0), riseOnHover:true});
     m.on("click", () => !picking && openEntry(g.id));
     m.addTo(T.layers.pins);
   });
-  // Photos prises en route : petites vignettes rondes le long du trajet
-  legs.forEach(l => l.items.filter(x => x.thumbUrl).forEach(x => {
-    const m = L.marker([x.lat, x.lng], {icon:L.divIcon({className:"stop-pin", html:`<div class="legpic ${l.id===T.active?"active":""}" style="--dc:${dc(l.day)}"><img src="${esc(x.thumbUrl)}" alt=""></div>`, iconSize:[0,0]}), title:l.label, riseOnHover:true});
-    m.on("click", () => !picking && openPhoto(x.id));
-    m.addTo(T.layers.legpics);
-  }));
   drawRoutes(legs);
   const note = $("map-note");
   if (T.loaded && !T.photos.length){
@@ -2216,14 +2210,18 @@ function buildFrames(){
     return its.filter(x => keep.has(x));
   };
   let lastDay = null;
+  const used = new Set();                // une photo ne passe qu'une fois (la photo du chapitre compte)
   visibleEntries().filter(e => !e.off).forEach(e => {
     // Un chapitre au début de chaque jour : « Jour 3 », la date et le parcours du jour.
     if (e.day !== lastDay){
       lastDay = e.day;
       const st = T.entries.filter(x => x.day === e.day && x.kind === "stop");
-      if (st.length) frames.push({chapter:true, e: st[0], day: e.day, cover: dayCover(T.entries.filter(x => x.day === e.day)), dur: 3400});
+      const cover = st.length ? dayCover(T.entries.filter(x => x.day === e.day)) : null;
+      if (st.length) frames.push({chapter:true, e: st[0], day: e.day, cover, dur: 3400});
+      if (cover) used.add(cover.id);
     }
-    const its = pick(e.items.filter(x => x.hasPhoto), e.kind === "leg" ? 4 : 6);
+    const its = pick(e.items.filter(x => x.hasPhoto && !used.has(x.id)), e.kind === "leg" ? 4 : 6);
+    its.forEach(x => used.add(x.id));
     const vdur = it => Math.min(30, it.video.duration || 10) * 1000 + 400;
     // Entre les photos, la carte en plein écran : le trajet se dessine, ou la carte se pose sur l'étape suivante.
     if (e.kind === "leg"){
