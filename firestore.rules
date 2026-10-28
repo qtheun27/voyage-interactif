@@ -48,6 +48,16 @@ service cloud.firestore {
                     || (request.resource.data.photo is bytes && request.resource.data.photo.size() < 150000))));
     }
 
+    // Rapports d'erreur des visiteurs (pour comprendre un blocage sur leur téléphone) : écrits par tous, lus par le propriétaire.
+    match /diag/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['at', 'step', 'code', 'msg', 'ua', 'v', 'trip', 'uid'])
+        && request.resource.data.msg is string && request.resource.data.msg.size() <= 500
+        && request.resource.data.ua is string && request.resource.data.ua.size() <= 300
+        && request.resource.data.uid == request.auth.uid;
+      allow read, delete: if viIsOwner();
+    }
+
     match /config/editors {
       allow read: if viIsEditor();
       allow write: if viIsOwner();
@@ -121,6 +131,13 @@ service cloud.firestore {
 
       match /members/{uid} {
         allow create: if request.auth != null
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['code', 'joinedAt'])
+          && request.resource.data.code is string
+          && request.resource.data.code.matches('^[A-Z0-9-]{4,40}$')
+          && exists(/databases/$(database)/documents/trips/$(tripId)/codes/$(request.resource.data.code));
+        // Retaper le bon code depuis un appareil déjà entré : l'inscription est simplement renouvelée.
+        allow update: if request.auth != null
           && request.auth.uid == uid
           && request.resource.data.keys().hasOnly(['code', 'joinedAt'])
           && request.resource.data.code is string

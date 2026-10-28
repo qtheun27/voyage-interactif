@@ -16,6 +16,7 @@ import { buildJourney, estimatePosition, legField, MODES } from "./lib/journey.j
 import { loadPack, ICONS } from "./packs/index.js";
 
 const APP = "Mon carnet de voyages";
+const VERSION = "2026-10-28c";
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const NDAY = 6;
@@ -566,7 +567,15 @@ $("nt-form").addEventListener("submit", async e => {
 /* =================================================================== */
 /* Accès avec code                                                     */
 /* =================================================================== */
-let gateTrip = null, linkCode = null;
+let gateTrip = null, linkCode = null, lastJoinErr = null;
+/* Un blocage chez un visiteur est noté (étape, code d'erreur, navigateur) pour pouvoir le comprendre à distance. */
+function report(step, err, trip){
+  try {
+    if (!auth?.currentUser) return;
+    addDoc(collection(db, "diag"), { at: Date.now(), step, code: String(err?.code || err?.name || ""), msg: String(err?.message || err || "").slice(0, 500),
+      ua: navigator.userAgent.slice(0, 300), v: VERSION, trip: trip || "", uid: auth.currentUser.uid }).catch(() => {});
+  } catch(_){}
+}
 /* Entrer dans un voyage avec son code (visiteur, sans compte) : null si c'est bon, sinon le message à afficher. */
 async function joinTrip(id, code){
   const wrong = `Ce code n'est pas le bon. Vérifie-le auprès de ${OWNER_NAME}.`;
@@ -577,14 +586,10 @@ async function joinTrip(id, code){
     // La connexion vient d'aboutir : on n'attend pas l'événement de Firebase (il peut arriver après).
     user = auth.currentUser;
     const ref = doc(db, `trips/${id}/members/${user.uid}`);
-    try { await setDoc(ref, { code, joinedAt: serverTimestamp() }); }
-    catch(err){
-      // Déjà entré depuis ce téléphone (l'inscription ne se réécrit pas) : c'est bon.
-      if (err?.code === "permission-denied" && (await getDoc(ref).catch(() => null))?.exists()) return null;
-      throw err;
-    }
+    await setDoc(ref, { code, joinedAt: serverTimestamp() });
     return null;
   } catch(err){
+    lastJoinErr = err; report("entrée", err, id);
     return err?.code === "permission-denied" ? wrong
       : err?.code === "auth/admin-restricted-operation" || err?.code === "auth/operation-not-allowed" ? "L'accès visiteur n'est pas encore activé (connexion anonyme dans Firebase)."
       : "Impossible d'ouvrir le carnet. Vérifie la connexion internet puis réessaie.";
@@ -602,6 +607,7 @@ async function showGate(id, msg){
     msg = err;
   }
   show("screen-gate"); setMsg("gate-msg", msg || "", msg ? "err" : null);
+  $("gate-tech").textContent = `Version ${VERSION}${lastJoinErr ? ` · ${lastJoinErr.code || lastJoinErr.name || "erreur"}` : ""}`;
   $("gate-code").value = "";
   setTimeout(() => $("gate-code").focus(), 50);
 }
@@ -610,6 +616,7 @@ $("gate-form").addEventListener("submit", async e => {
   $("gate-submit").disabled = true; setMsg("gate-msg", "Vérification…");
   const err = await joinTrip(gateTrip, normCode($("gate-code").value));
   $("gate-submit").disabled = false;
+  $("gate-tech").textContent = `Version ${VERSION}${lastJoinErr ? ` · ${lastJoinErr.code || lastJoinErr.name || "erreur"}` : ""}`;
   if (err) return setMsg("gate-msg", err, "err");
   setMsg("gate-msg", "");
   return openTrip(gateTrip, ++routeSeq, true);
@@ -652,6 +659,7 @@ async function openTrip(id, seq, force){
   try { const c = await getDocFromCache(doc(db, "trips", id)); if (c.exists()) snap = c; } catch(_){}
   if (!snap) try { snap = await getDoc(doc(db, "trips", id)); }
   catch(err){
+    if (!isEditor) report("ouverture du voyage", err, id);
     if (seq !== routeSeq) return;
     if (err?.code === "permission-denied"){ return showGate(id); }
     $("boot").hidden = false; $("boot-text").textContent = "Connexion impossible. Vérifie internet puis recharge la page."; return;
@@ -697,6 +705,7 @@ async function openTrip(id, seq, force){
     else T.renderTimer = setTimeout(after, adding ? 1500 : 250);
   }, err => {
     T.loaded = true; render(false);
+    if (!isEditor) report("lecture des photos", err, id);
     if (err?.code === "permission-denied") revoked(id);
   }));
   mapReady.then(() => { if (T.id === id && !T.J) render(false); });
@@ -2514,6 +2523,8 @@ async function openInvite(email, seq, trip){
 }
 
 /* ---------- Démarrage ---------- */
+addEventListener("error", e => { if (!isEditor) report("erreur de la page", e.error || e.message, T.id || gateTrip); });
+addEventListener("unhandledrejection", e => { if (!isEditor && e.reason?.code !== "permission-denied") report("erreur de la page", e.reason, T.id || gateTrip); });
 // Lien des proches « ?v=voyage&c=CODE » : on garde le code de côté et l'adresse redevient simple.
 {
   const q = new URLSearchParams(location.search), v = q.get("v"), c = q.get("c");

@@ -2,7 +2,7 @@
    - bibliothèques et polices (adresses versionnées) : depuis le cache, jamais retéléchargées ;
    - fichiers de l'appli : depuis le cache, puis mis à jour en arrière-plan ; une nouvelle version est signalée à la page.
    Les données (Firestore), les photos et les vidéos ne passent pas par ici. */
-const SHELL = "carnet-shell-v1", LIBS = "carnet-libs-v1";
+const SHELL = "carnet-shell-v2", LIBS = "carnet-libs-v1";
 const CORE = ["./", "index.html", "app.js", "style.css", "firebase-config.js", "manifest.webmanifest", "icons/icon.svg",
   "lib/time.js", "lib/exif.js", "lib/mov.js", "lib/s3.js", "lib/geo.js", "lib/journey.js", "packs/index.js"];
 const LIB_HOSTS = ["www.gstatic.com", "cdnjs.cloudflare.com", "cdn.jsdelivr.net", "fonts.googleapis.com", "fonts.gstatic.com"];
@@ -31,6 +31,17 @@ self.addEventListener("fetch", e => {
   }
   if (url.origin !== location.origin) return;
   const key = req.mode === "navigate" ? new Request(new URL("./", location).href) : new Request(url.origin + url.pathname);
+  // Le code de l'appli (page, scripts, styles) vient d'abord du réseau : une correction publiée arrive tout de suite.
+  // Sans réseau (ou s'il traîne plus de 3 s), la copie gardée sur l'appareil prend le relais.
+  if (req.mode === "navigate" || /\.(js|css|html|webmanifest)$/.test(url.pathname)){
+    e.respondWith(caches.open(SHELL).then(async c => {
+      const net = fetch(req, { cache: "no-cache" }).then(r => { if (r.ok) c.put(key, r.clone()); return r; });
+      const late = new Promise(res => setTimeout(res, 3000)).then(() => c.match(key));
+      try { return (await Promise.race([net, late.then(h => h || net)])) || await net; }
+      catch(_){ return (await c.match(key)) || Response.error(); }
+    }));
+    return;
+  }
   e.respondWith(caches.open(SHELL).then(async c => {
     const hit = await c.match(key);
     const fresh = fetch(req, { cache: "no-cache" }).then(async r => {
