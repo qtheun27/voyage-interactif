@@ -92,7 +92,7 @@ const log = (...a) => console.log('•', ...a), txt = s => s.replace(/\s+/g, ' '
   await p.click('#e-move-photo');
   await p.waitForFunction(() => /Rangé dans « Mġarr/.test(document.querySelector('#toast').textContent));
   await p.waitForTimeout(800);
-  log('après rangement : Valletta', await p.$$eval('#list .stop', els => els.filter(e => /Valletta/.test(e.textContent)).length), 'étape(s) | Mġarr :', await p.$eval('#list .stop:has-text("Mġarr") .thumbstack', e => e.textContent.trim() || '1'));
+  log('après rangement : Valletta', await p.$$eval('#list .stop', els => els.filter(e => /Valletta/.test(e.textContent)).length), 'étape(s) | Mġarr :', await p.$eval('#list .stop:has-text("Mġarr")', e => e.querySelector('.mosaic')?.dataset.n || '0'));
   await p.click('#toast .toast-btn'); await p.waitForTimeout(1200);
   log('annulé : Valletta', await p.$$eval('#list .stop', els => els.filter(e => /Valletta/.test(e.textContent)).length), 'étape(s)');
   // Vidéo mal placée : choisir l'étape puis « Enregistrer » la range ; changer son heure ne déplace qu'elle

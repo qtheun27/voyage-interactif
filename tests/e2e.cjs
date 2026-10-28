@@ -101,7 +101,7 @@ const log = (...a) => console.log('•', ...a);
   await p.setInputFiles('#f-photos', [fx + 'sud_ouest.jpg']);
   await p.waitForFunction(() => !document.querySelector('#add-submit').disabled);
   await p.click('#add-submit');
-  await v.waitForFunction(() => document.querySelectorAll('#list .thumbstack b').length >= 1 || document.querySelectorAll('#list .stop').length >= 4, null, { timeout: 15000 });
+  await v.waitForFunction(() => document.querySelectorAll('#list .mosaic').length >= 3 || document.querySelectorAll('#list .stop').length >= 4, null, { timeout: 15000 });
   log('mise à jour en direct reçue par le visiteur');
   // Recharge : la session reste
   await v.goto('http://127.0.0.1:8000/#/'); await v.waitForSelector('#screen-home:not([hidden])');
