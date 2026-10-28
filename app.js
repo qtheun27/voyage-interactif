@@ -588,6 +588,7 @@ function makeFmts(tz){
   };
 }
 function closeTrip(){
+  document.body.classList.remove("reading"); readObs?.disconnect();
   T.unsubs.forEach(u => { try { u(); } catch(_){} }); T.unsubs = [];
   clearTimeout(T.renderTimer);
   stopStory(true);
@@ -874,25 +875,99 @@ function renderLog(){
     return;
   }
   if (T.view === "photos") return renderGallery(el);
+  // Un chapitre par jour : grande photo, le parcours du jour, puis les étapes en pages de carnet.
   el.innerHTML = byDay(visibleEntries()).map(([d,l]) => {
-    const st = l.filter(e => e.kind === "stop"), dd = l.filter(e => e.kind === "leg").reduce((s, x) => s + x.km, 0);
-    return `<section class="day" style="--dc:${dc(d)}"><div class="day-head"><h2>${dayName(d)}</h2><span>${esc(T.F.dayLabel.format(dayDate(d)))}${dd >= .5 ? ` · ${fmtKm(dd)} km` : ""}${st.length ? ` · ${st.length} étape${st.length>1?"s":""}` : ""}</span>${isEditor && dayMessy(d) ? `<button type="button" class="linkbtn dayfix" data-dayfix="${d}">↺ Remettre dans l'ordre des photos</button>` : ""}</div>
+    const st = l.filter(e => e.kind === "stop"), dd = l.filter(e => e.kind === "leg" && !e.off).reduce((s, x) => s + x.km, 0);
+    const n = l.reduce((s, e) => s + e.items.filter(x => x.hasPhoto).length, 0), cov = dayCover(l);
+    const route = [...new Set(st.map(s => s.place).filter(Boolean))];
+    const way = route.length > 4 ? [...route.slice(0, 2), "…", route[route.length - 1]] : route;
+    return `<section class="day" style="--dc:${dc(d)}">
+      <header class="chapter${cov ? "" : " noimg"}" data-day-open="${d}">${cov ? `<img src="${esc(cov.thumbUrl)}" alt="" data-full="${esc(cov.id)}" loading="lazy">` : ""}
+        <div class="ch-in"><span class="ch-kicker">${dayName(d)}</span><h2>${esc(cap1(T.F.dayLabel.format(dayDate(d))))}</h2>
+        ${way.length ? `<p class="ch-way">${way.map(esc).join(" <i>→</i> ")}</p>` : ""}
+        <p class="ch-stats">${[st.length ? `${st.length} étape${st.length>1?"s":""}` : "", n ? `${n} photo${n>1?"s":""}` : "", dd >= .5 ? `${fmtKm(dd)} km` : ""].filter(Boolean).join(" · ")}</p></div></header>
+      ${isEditor && dayMessy(d) ? `<button type="button" class="linkbtn dayfix" data-dayfix="${d}">↺ Remettre dans l'ordre des photos</button>` : ""}
       <ol class="stops">${l.map(e => e.kind === "leg" ? legRow(e) : stopRow(e)).join("")}</ol></section>`;
   }).join("");
+  upgradeChapters(); watchReading();
   const off = isEditor ? T.J.legs.filter(x => x.off).length : 0;
   if (off) el.insertAdjacentHTML("beforeend", `<p class="offlegs"><button type="button" class="linkbtn" id="btn-showoff">${T.showOff
     ? "Cacher les trajets supprimés" : `${off} trajet${off > 1 ? "s" : ""} supprimé${off > 1 ? "s" : ""} · les revoir pour en rétablir un`}</button></p>`);
 }
+const cap1 = s => s.charAt(0).toUpperCase() + s.slice(1);
+/* Les plus belles photos d'abord : celles qui ont un petit mot, la couverture, puis réparties dans l'étape. */
+function bestOf(items, n){
+  const ph = items.filter(x => x.thumbUrl); if (ph.length <= n) return ph;
+  const pick = new Set(ph.filter(x => x.caption).slice(0, 1));
+  for (let k = 0; pick.size < n; k++) pick.add(ph[Math.round(k * (ph.length - 1) / (n - 1 || 1))] || ph[k]);
+  return [...pick].slice(0, n);
+}
+function dayCover(list){
+  const st = list.filter(e => e.kind === "stop" && e.items.some(x => x.thumbUrl && !x.video));
+  if (!st.length) return null;
+  const big = st.find(s => s.items.some(x => x.caption && x.thumbUrl && !x.video)) || [...st].sort((a, b) => b.items.length - a.items.length)[0];
+  const its = big.items.filter(x => x.thumbUrl && !x.video);
+  return its.find(x => x.caption) || its[Math.floor(its.length / 2)];
+}
+/* En lisant le carnet, la carte suit : l'étape (ou le trajet) au milieu de l'écran s'allume et la carte s'y rend. */
+let readObs = null, readTimer = null, readId = null;
+function watchReading(){
+  readObs?.disconnect();
+  if (!("IntersectionObserver" in window) || T.view !== "carnet") return;
+  const wide = innerWidth >= 900;
+  readObs = new IntersectionObserver(es => {
+    const vis = es.filter(x => x.isIntersecting); if (!vis.length) return;
+    const id = vis[vis.length - 1].target.dataset.entry;
+    clearTimeout(readTimer);
+    readTimer = setTimeout(() => followReading(id), 350);
+  }, { root: wide ? document.querySelector("aside.log") : null, rootMargin: wide ? "-40% 0px -50% 0px" : "-58% 0px -30% 0px" });
+  $("list").querySelectorAll("[data-entry]").forEach(li => readObs.observe(li));
+}
+function followReading(id){
+  if (id === readId || S.on || !$("lb").hidden || dragging() || !T.J || picking) return;
+  if (innerWidth < 900 && !document.body.classList.contains("reading")) return;
+  const e = T.entries.find(x => x.id === id); if (!e) return;
+  readId = id; T.active = id;
+  $("list").querySelectorAll("li.active").forEach(x => x.classList.remove("active"));
+  $("list").querySelector(`[data-entry="${CSS.escape(id)}"]`)?.classList.add("active");
+  renderMap(false); flyToEntry(e);
+}
+/* Téléphone : en descendant dans le carnet, la carte reste en haut, plus petite (et suit la lecture). */
+(() => {
+  let on = false, raf = 0;
+  const check = () => {
+    raf = 0;
+    const want = innerWidth < 900 && T.view === "carnet" && !!T.J?.stops.length && !$("screen-trip").hidden && !S.on
+      && (on ? scrollY > 60 : scrollY > $("mapwrap").offsetHeight * .7);
+    if (want === on) return;
+    const h0 = $("mapwrap").offsetHeight;
+    on = want; document.body.classList.toggle("reading", on);
+    document.documentElement.style.setProperty("--hh", $("screen-trip").querySelector("header.top").offsetHeight + "px");
+    scrollBy(0, $("mapwrap").offsetHeight - h0);     // le texte ne saute pas quand la carte change de taille
+    if (!on) readId = null;
+    T.map?.invalidateSize();
+  };
+  addEventListener("scroll", () => { raf ||= requestAnimationFrame(check); }, {passive: true});
+  addEventListener("resize", () => { raf ||= requestAnimationFrame(check); });
+})();
+$("list").addEventListener("click", e => { const c = e.target.closest("[data-day-open]"); if (c){ const l = visibleEntries().filter(x => x.day === +c.dataset.dayOpen && x.items.length); if (l.length) openEntry(l[0].id, true); } });
+
+/* La photo du chapitre en grand (miniature d'abord, puis l'image en grand). */
+function upgradeChapters(){
+  const tripId = T.id;
+  $("list").querySelectorAll(".chapter img[data-full]").forEach(im => fullPhoto(tripId, im.dataset.full).then(u => { if (u && im.isConnected) im.src = u; }));
+}
 function stopRow(g){
-  const ph = g.items.filter(x => x.thumbUrl);
+  const ph = g.items.filter(x => x.thumbUrl), shown = bestOf(g.items, 3), more = ph.length - shown.length;
   const t1 = T.F.time.format(new Date(g.at)), t2 = T.F.time.format(new Date(g.end));
-  const second = ph.find(x => x.thumbUrl !== g.cover);
-  return `<li class="stop ${g.id===T.active?"active":""}">${isEditor ? `<button type="button" class="rowedit" data-edit="${esc(g.id)}" aria-label="Modifier l'étape">${PEN}</button>` : ""}
+  const play = '<i class="vmark"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></i>';
+  return `<li class="stop ${g.id===T.active?"active":""}" data-entry="${esc(g.id)}">${isEditor ? `<button type="button" class="rowedit" data-edit="${esc(g.id)}" aria-label="Modifier l'étape">${PEN}</button>` : ""}
     <button type="button" data-open="${esc(g.id)}">
-      <span class="thumbstack">${ph.length ? `<img src="${esc(g.cover)}" alt="" loading="lazy">${second?`<img src="${esc(second.thumbUrl)}" alt="" loading="lazy">`:""}${ph.length>1?`<b>${ph.length}</b>`:""}${g.items.some(x => x.video) ? '<i class="vmark"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></i>' : ""}` : `<span class="ph">${pinSvg}</span>`}</span>
       <span class="txt"><span class="when">${esc(t1)}${t2!==t1?` – ${esc(t2)}`:""}${g.tag ? `<span class="flag">${esc(g.tag)}</span>` : ""}</span>
-      <span class="place">${esc(g.place || "Étape")}${g.approx?'<span class="tag">position estimée</span>':""}</span>
-      ${g.caption ? `<span class="cap">${esc(g.caption)}</span>` : ""}${socialMini(g)}</span>
+      <span class="place">${esc(g.place || "Étape")}${g.approx?'<span class="tag">position estimée</span>':""}</span></span>
+      ${ph.length ? `<span class="mosaic n${shown.length}" data-n="${ph.length}">${shown.map((x, i) => `<span class="tile"><img src="${esc(x.thumbUrl)}" alt="" loading="lazy" draggable="false">${x.video ? play : ""}${i === shown.length - 1 && more > 0 ? `<b>+${more}</b>` : ""}</span>`).join("")}</span>`
+        : `<span class="noimg-stop">${pinSvg}</span>`}
+      ${g.caption ? `<span class="cap">${esc(g.caption)}</span>` : ""}${socialMini(g)}
     </button></li>`;
 }
 const PEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>';
@@ -900,7 +975,7 @@ function legRow(l){
   const ph = l.items.filter(x => x.thumbUrl).slice(0, 5);
   const dur = l.to && l.from ? fmtDur(l.to.at - l.from.end) : "";
   const meta = [l.km >= .5 ? `${fmtKm(l.km)} km` : "", l.mode === "plane" && dur ? dur : "", l.items.length ? `${l.items.length} photo${l.items.length>1?"s":""}` : ""].filter(Boolean).join(" · ");
-  return `<li class="leg m-${l.mode} ${l.id===T.active?"active":""}${l.hidden?" is-hidden":""}">${isEditor ? `<button type="button" class="rowedit" data-legedit="${esc(l.id)}" aria-label="Modifier le trajet">${PEN}</button>` : ""}
+  return `<li class="leg m-${l.mode} ${l.id===T.active?"active":""}${l.hidden?" is-hidden":""}" data-entry="${esc(l.id)}">${isEditor ? `<button type="button" class="rowedit" data-legedit="${esc(l.id)}" aria-label="Modifier le trajet">${PEN}</button>` : ""}
     <button type="button" data-open="${esc(l.id)}" ${l.items.length ? "" : 'data-fly="1"'}>
       <span class="modeico">${modeIcon(l.mode)}</span>
       <span class="txt"><span class="leg-title">${esc(l.label)}${l.off ? ' <span class="tag">supprimé</span>' : l.hidden ? ' <span class="tag">masqué</span>' : ""}</span><span class="when">${esc(meta)}</span>${l.caption ? `<span class="cap">${esc(l.caption)}</span>` : ""}
@@ -1927,7 +2002,14 @@ function buildFrames(){
     for (let k = 0; keep.size < n && k < n * 3; k++) keep.add(its[Math.round(k * (its.length - 1) / (n * 3 - 1))]);
     return its.filter(x => keep.has(x));
   };
+  let lastDay = null;
   visibleEntries().filter(e => !e.off).forEach(e => {
+    // Un chapitre au début de chaque jour : « Jour 3 », la date et le parcours du jour.
+    if (e.day !== lastDay){
+      lastDay = e.day;
+      const st = T.entries.filter(x => x.day === e.day && x.kind === "stop");
+      if (st.length) frames.push({chapter:true, e: st[0], day: e.day, cover: dayCover(T.entries.filter(x => x.day === e.day)), dur: 3400});
+    }
     const its = pick(e.items.filter(x => x.hasPhoto), e.kind === "leg" ? 4 : 6);
     if (e.kind === "leg"){
       if (its.length) its.forEach(it => frames.push({e, it, dur: it.video ? Math.min(30, it.video.duration || 10) * 1000 + 400 : 2800 + Math.min(2500, (it.caption || "").length * 35)}));
@@ -1938,8 +2020,8 @@ function buildFrames(){
   });
   // Pour animer le trajet : position de chaque image dans son trajet
   frames.forEach((f, i) => {
-    if (f.e.kind !== "leg") return;
-    const same = frames.filter(x => x.e === f.e);
+    if (f.e.kind !== "leg" || f.chapter) return;
+    const same = frames.filter(x => x.e === f.e && !x.chapter);
     f.legTotal = same.reduce((s, x) => s + x.dur, 0);
     f.legOffset = same.slice(0, same.indexOf(f)).reduce((s, x) => s + x.dur, 0);
   });
@@ -2011,7 +2093,21 @@ function drawStory(){
     T.layers.story.clearLayers(); render(true);
     return;
   }
-  const e = f.e, frames = S.frames.filter(x => x.e === e), idx = frames.indexOf(f);
+  $("story").classList.toggle("is-chapter", !!f.chapter);
+  if (f.chapter){
+    const d = f.day, st = T.entries.filter(x => x.day === d && x.kind === "stop"), route = [...new Set(st.map(s => s.place).filter(Boolean))];
+    const way = route.length > 4 ? [...route.slice(0, 2), "…", route[route.length - 1]] : route;
+    $("story").style.setProperty("--dc", dc(d));
+    $("st-kicker").textContent = dayName(d);
+    $("st-title").textContent = cap1(T.F.dayLabel.format(dayDate(d)));
+    $("st-cap").textContent = way.join(" → ");
+    $("st-media").innerHTML = f.cover ? `<img class="kb k${d % 4}" src="${esc(f.cover.thumbUrl)}" alt="" draggable="false" style="--kbdur:${(f.dur + 800) / 1000}s"><div class="st-chapter"><span>${esc(dayName(d))}</span></div>`
+      : `<div class="st-chapter solo"><span>${esc(dayName(d))}</span></div>`;
+    if (f.cover) fullPhoto(T.id, f.cover.id).then(u => { const im = $("st-media").querySelector("img"); if (u && im && S.frames[S.k] === f) im.src = u; });
+    $("st-bar").innerHTML = ""; $("st-count").textContent = "";
+    return;
+  }
+  const e = f.e, frames = S.frames.filter(x => x.e === e && !x.chapter), idx = frames.indexOf(f);
   $("story").style.setProperty("--dc", dc(e.day));
   $("st-kicker").textContent = `${dayName(e.day)} · ${T.F.full.format(new Date(f.it ? f.it.at : e.at))}`;
   $("st-title").innerHTML = esc(e.kind === "leg" ? e.label : (e.place || "Étape")) + (e.tag ? ` <span class="flag big">${esc(e.tag)}</span>` : "");

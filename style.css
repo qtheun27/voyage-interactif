@@ -596,3 +596,68 @@ h1.appname{white-space:normal!important;overflow:visible!important;text-overflow
 .readthumbs img,.readthumbs i{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;background:var(--line);display:block;animation:pop .25s ease-out}
 @keyframes pop{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.readthumbs img,.readthumbs i{animation:none}}
+
+/* =================== Le carnet, en pages de journal =================== */
+@media (min-width:900px){ .main{grid-template-columns:minmax(0,1fr) 450px} }
+.day{margin-top:22px}
+.chapter{position:relative;border-radius:18px;overflow:hidden;min-height:190px;display:flex;align-items:flex-end;margin:0 0 14px;background:color-mix(in srgb,var(--dc) 70%,#0b1a20);color:#fff;cursor:pointer;isolation:isolate;box-shadow:0 8px 24px rgba(10,25,32,.18)}
+.chapter img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2;transform:scale(1.02);transition:transform 1.2s ease}
+.chapter:hover img{transform:scale(1.06)}
+.chapter::before{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(6,14,18,0) 25%,rgba(6,14,18,.78) 100%)}
+.chapter.noimg::before{background:radial-gradient(120% 90% at 85% 0%,rgba(255,255,255,.18),transparent 60%)}
+.ch-in{padding:16px 18px;display:flex;flex-direction:column;gap:4px;width:100%}
+.ch-kicker{align-self:flex-start;font:700 .72rem var(--f-mono);letter-spacing:.14em;text-transform:uppercase;background:var(--dc);color:#fff;padding:3px 9px;border-radius:999px}
+.chapter h2{font-family:var(--f-display);font-weight:400;font-size:1.65rem;line-height:1.1;margin:4px 0 0;color:#fff;text-shadow:0 2px 12px rgba(0,0,0,.35)}
+.ch-way{margin:2px 0 0;font-weight:600;font-size:.95rem;text-shadow:0 1px 8px rgba(0,0,0,.4)}
+.ch-way i{font-style:normal;opacity:.7;padding:0 2px}
+.ch-stats{margin:0;font:500 .75rem var(--f-mono);letter-spacing:.04em;opacity:.85}
+.day > .dayfix{display:block;margin:-6px 0 12px;color:var(--accent);font-weight:600;text-decoration:none}
+
+.stops{gap:6px;padding-left:16px}
+.stop::before{top:18px}
+.stop > button[data-open]{display:flex;flex-direction:column;align-items:stretch;gap:0;padding:0;overflow:hidden;border-radius:16px;box-shadow:0 2px 10px rgba(10,25,32,.07);transition:box-shadow .25s,border-color .25s,transform .25s}
+.stop > button[data-open]:hover{box-shadow:0 6px 18px rgba(10,25,32,.12)}
+.stop.active > button[data-open]{border-color:var(--dc);box-shadow:0 0 0 2px var(--dc),0 8px 22px rgba(10,25,32,.14)}
+.stop .txt{padding:12px 14px 10px;display:flex;flex-direction:column;gap:2px}
+.stop > .rowedit + button[data-open] .txt{padding-right:52px}
+.stop .place{font-family:var(--f-display);font-weight:400;font-size:1.28rem;line-height:1.2;white-space:normal}
+.mosaic{display:grid;gap:3px;height:210px;background:var(--line)}
+.mosaic.n1{grid-template-columns:1fr}
+.mosaic.n2{grid-template-columns:1fr 1fr}
+.mosaic.n3{grid-template-columns:2fr 1fr;grid-template-rows:1fr 1fr}
+.mosaic.n3 .tile:first-child{grid-row:span 2}
+.tile{position:relative;overflow:hidden;min-height:0}
+.tile img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .6s ease}
+.stop > button[data-open]:hover .tile img{transform:scale(1.04)}
+.tile b{position:absolute;inset:0;display:grid;place-items:center;background:rgba(8,16,20,.45);color:#fff;font:700 1.3rem var(--f-display);letter-spacing:.02em}
+.tile .vmark{position:absolute;left:8px;bottom:8px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.55);display:grid;place-items:center}
+.tile .vmark svg{width:14px;height:14px;fill:#fff;margin-left:2px}
+.noimg-stop{display:none}
+.stop .cap{display:-webkit-box;-webkit-line-clamp:7;-webkit-box-orient:vertical;overflow:hidden;margin:0;padding:12px 16px 4px;font-family:var(--f-display);font-size:1.02rem;line-height:1.5;color:var(--fg);white-space:pre-line;border-left:3px solid var(--dc);margin:12px 14px 4px 14px;padding:0 0 0 12px}
+.stop .social-mini{padding:6px 14px 12px}
+.stop > button[data-open] > :last-child{margin-bottom:12px}
+.stop > button[data-open] > .social-mini:last-child{margin-bottom:0}
+
+/* Trajets : le fil entre deux pages */
+.leg > button[data-open]{border:0;background:none;padding:10px 4px 10px 2px;gap:12px}
+.leg > button[data-open]:hover{background:color-mix(in srgb,var(--dc) 6%,transparent)}
+.leg.active > button[data-open]{background:color-mix(in srgb,var(--dc) 10%,transparent);border:0}
+.leg .modeico{width:40px;height:40px;box-shadow:0 2px 8px rgba(10,25,32,.12)}
+.leg .leg-title{font-size:.95rem;color:var(--dc)}
+.film img{width:52px;height:52px;border-radius:10px}
+
+/* Téléphone : la carte reste en haut pendant la lecture et suit l'étape lue */
+@media (max-width:899px){
+  body.reading .mapwrap{position:sticky;top:var(--hh,58px);height:32svh;min-height:200px;z-index:5;box-shadow:0 8px 18px rgba(10,25,32,.18)}
+  body.reading .mapbtn,body.reading .compass,body.reading .leaflet-control-scale{display:none}
+  .mosaic{height:200px}
+}
+
+/* Revivre : un chapitre par jour */
+.st-chapter{position:absolute;inset:0;display:grid;place-items:center;z-index:2;pointer-events:none}
+.st-chapter span{font-family:var(--f-display);font-size:clamp(2.4rem,9vw,4rem);color:#fff;text-shadow:0 4px 30px rgba(0,0,0,.55);animation:chap 1.2s ease-out both}
+.st-chapter.solo{background:radial-gradient(circle at 50% 40%,color-mix(in srgb,var(--dc) 60%,#000),#05090c)}
+.story.is-chapter #st-title{font-size:1.6rem}
+@keyframes chap{from{opacity:0;transform:translateY(14px) scale(.96);letter-spacing:.2em}to{opacity:1;transform:none;letter-spacing:.02em}}
+.stop img,.leg img,.chapter img{-webkit-user-drag:none;user-select:none;-webkit-user-select:none}
+.stop > .rowedit + button[data-open]{padding-right:0}
