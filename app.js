@@ -779,7 +779,8 @@ const modeIcon = m => MODE_SVG[MODES[m]?.icon || "car"];
 function render(fit){
   if (!T.trip || !T.land) return;
   T.J = buildJourney(T.photos, { dayKey, isWater: T.land.isWater, inCountry: T.land.inCountry, autoNames: T.autoNames, airport: T.pack?.airport });
-  T.entries = T.J.timeline.filter(e => e.kind === "stop" || e.notable || (isEditor && e.hidden));
+  // Trajets supprimés : invisibles, sauf pour l'éditeur qui demande à les revoir (pour en rétablir un).
+  T.entries = T.J.timeline.filter(e => e.kind === "stop" || (e.off ? isEditor && T.showOff : e.notable || (isEditor && e.hidden)));
   if (T.filterDay != null && T.filterDay >= T.J.days.length) T.filterDay = null;
   T.flat = visibleEntries().flatMap(e => e.items.map((_, i) => ({e, i})));
   renderStatus(); renderDays(); renderLog(); renderMap(fit);
@@ -856,6 +857,9 @@ function renderLog(){
     return `<section class="day" style="--dc:${dc(d)}"><div class="day-head"><h2>${dayName(d)}</h2><span>${esc(T.F.dayLabel.format(dayDate(d)))}${dd >= .5 ? ` · ${fmtKm(dd)} km` : ""}${st.length ? ` · ${st.length} étape${st.length>1?"s":""}` : ""}</span></div>
       <ol class="stops">${l.map(e => e.kind === "leg" ? legRow(e) : stopRow(e)).join("")}</ol></section>`;
   }).join("");
+  const off = isEditor ? T.J.legs.filter(x => x.off).length : 0;
+  if (off) el.insertAdjacentHTML("beforeend", `<p class="offlegs"><button type="button" class="linkbtn" id="btn-showoff">${T.showOff
+    ? "Cacher les trajets supprimés" : `${off} trajet${off > 1 ? "s" : ""} supprimé${off > 1 ? "s" : ""} · les revoir pour en rétablir un`}</button></p>`);
 }
 function stopRow(g){
   const ph = g.items.filter(x => x.thumbUrl);
@@ -954,6 +958,7 @@ $("days").addEventListener("click", e => {
 $("view-tabs").addEventListener("click", e => { const b = e.target.closest("[data-view]"); if (!b) return; T.view = b.dataset.view; renderLog(); });
 $("list").addEventListener("click", e => {
   if (suppressClick){ e.preventDefault(); e.stopPropagation(); return; }
+  if (e.target.closest("#btn-showoff")){ T.showOff = !T.showOff; render(false); return; }
   const le = e.target.closest("[data-legedit]"); if (le) return openLegSheet(le.dataset.legedit);
   const se = e.target.closest("[data-edit]"); if (se){ openEntry(se.dataset.edit, true); $("lb-editbtn").click(); return; }
   const p = e.target.closest("[data-photo]"); if (p) return openPhoto(p.dataset.photo);
@@ -1338,7 +1343,9 @@ $("ls-delete").onclick = async () => {
   const l = legEditing; if (!l) return;
   const all = [...(l.to?.items || []), ...l.items], holder = all[0], off = !l.off;
   try {
-    await updateEach(all, x => x === holder ? (!!x.legOff !== off ? {legOff: off} : {}) : (x.legOff ? {legOff: false} : {}));
+    await updateEach(all, x => ({ ...(x === holder ? (!!x.legOff !== off ? {legOff: off} : {}) : (x.legOff ? {legOff: false} : {})),
+      // Ses photos prises en route rejoignent l'étape d'arrivée (ou de départ) : le trajet disparaît vraiment.
+      ...(off && l.items.includes(x) && (l.to || l.from) ? {moving: false, still: true, stopRef: (l.to || l.from).items[0].id} : {}) }));
     $("legsheet").hidden = true;
     toast(off ? "Trajet supprimé" : "Trajet rétabli", off ? () => updateEach([holder], () => ({legOff: false})) : null, off ? "Annuler" : undefined);
   } catch(_){ setMsg("ls-msg", "La modification a échoué. Réessaie.", "err"); }
