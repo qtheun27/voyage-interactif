@@ -232,7 +232,7 @@ aside.log{background:var(--bg);padding-block:14px 110px;padding-left:max(16px,en
 .x svg{width:22px;height:22px}
 label.f,div.f{display:flex;flex-direction:column;gap:5px;font-weight:600;font-size:.88rem}
 label.f small,div.f small{font-weight:400;color:var(--muted)}
-input[type=text],input[type=datetime-local],input[type=date],select,textarea{font:inherit;font-weight:400;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%;min-height:44px}
+input[type=text],input[type=email],input[type=password],input[type=datetime-local],input[type=date],select,textarea{font:inherit;font-weight:400;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%;min-height:44px}
 textarea{min-height:70px;resize:vertical}
 .thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px}
 .thumb{position:relative;border-radius:10px;overflow:hidden;aspect-ratio:1;background:var(--line);max-width:100%}
@@ -675,3 +675,15 @@ h1.appname{white-space:normal!important;overflow:visible!important;text-overflow
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .photo-tiles{filter:saturate(1.05) brightness(.85)}}
 .panel [data-action="share-trip"]{width:100%;margin:4px 0 10px}
 .panel [data-action="share-trip"] svg,.editor-tools [data-action="share-trip"] svg{width:18px;height:18px}
+
+/* ---------- Administration : éditeurs ---------- */
+.ed-list{list-style:none;margin:0 0 12px;padding:0;display:flex;flex-direction:column;gap:6px}
+.ed-list li{display:flex;align-items:center;gap:10px;padding:8px 6px 8px 8px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.ed-av{width:34px;height:34px;border-radius:50%;flex:none;display:grid;place-items:center;background:var(--sea);font-weight:700;font-size:.85rem}
+.ed-mail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.ed-mail small{color:var(--muted);font-weight:500}
+.ed-list .btn{padding:6px 10px;font-size:.85rem}
+.ed-add{display:flex;gap:8px;flex-wrap:wrap}
+.ed-add input{flex:1 1 200px;min-width:0}
+.ed-add .btn svg{width:17px;height:17px}
+.home-actions{display:flex;gap:8px;flex-wrap:wrap}

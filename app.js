@@ -234,7 +234,7 @@ function fullPhoto(tripId, stopId){
 }
 
 /* ---------- Routeur ---------- */
-const SCREENS = ["screen-home", "screen-gate", "screen-trip", "screen-admin"];
+const SCREENS = ["screen-home", "screen-gate", "screen-trip", "screen-admin", "screen-appadmin"];
 function show(id){
   $("boot").hidden = true;
   SCREENS.forEach(s => $(s).hidden = s !== id);
@@ -243,6 +243,8 @@ function show(id){
 }
 function parseHash(){
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
+  if (parts[0] === "admin") return {name:"appadmin"};
+  if (parts[0] === "editeur") return {name:"invite", email: parts[1] || ""};
   if (parts[0] === "v" && parts[1]) return {name: parts[2] === "admin" ? "admin" : "trip", id: parts[1], code: parts[2] === "c" ? parts[3] : null};
   return {name:"home"};
 }
@@ -256,6 +258,8 @@ async function route(authChanged){
   if (r.name !== "trip") closeTrip();
   if (r.name === "home") return renderHome(seq);
   if (r.name === "admin") return renderAdmin(r.id, seq);
+  if (r.name === "appadmin") return renderAppAdmin();
+  if (r.name === "invite") return openInvite(r.email, seq);
   return openTrip(r.id, seq, authChanged);
 }
 window.addEventListener("hashchange", () => route(false));
@@ -281,7 +285,7 @@ function avatarInner(){
 }
 function renderAccounts(){
   const label = hasAccount() ? `Mon compte (${myName()})` : "Mon compte, connexion éditeur";
-  ["home-account", "trip-account", "admin-account"].forEach(id => {
+  ["home-account", "trip-account", "admin-account", "appadmin-account"].forEach(id => {
     $(id).innerHTML = `<button class="avatar" type="button" data-action="account" aria-label="${esc(label)}" title="${esc(label)}">${avatarInner()}</button>`;
   });
 }
@@ -304,6 +308,7 @@ function openAccount(login){
     ? `<b>${esc(myName())}</b><small>${esc(user.email || "")}</small>${isEditor ? '<small style="display:block">Éditeur</small>' : ""}`
     : `<b>${esc(storedName() || "Visiteur")}</b><small>Tu suis les voyages avec leur code, sans compte.</small>`}</span>`;
   $("ac-photo-del").hidden = !(acc && myPhoto);
+  $("ac-appadmin").hidden = !isOwner();
   $("ac-photo-del").textContent = user?.photoURL ? "Reprendre la photo Google" : "Retirer ma photo";
   $("ac-pw-open").textContent = hasPassword() ? "Changer mon mot de passe" : "Créer un mot de passe";
   $("ac-name").value = storedName();
@@ -445,6 +450,7 @@ async function renderHome(seq){
   document.title = APP;
   show("screen-home");
   $("home-editor-actions").hidden = !isEditor;
+  $("btn-appadmin").hidden = !isOwner();
   $("join-form").hidden = isEditor;
   const el = $("home-cards");
   if (isEditor){
@@ -2209,7 +2215,7 @@ async function renderAdmin(id, seq){
   A = { id, trip:null, codes:[], coverFile:null, coverStop:null, stops:null };
   $("a-cover-grid").hidden = true; $("a-cover-grid").innerHTML = "";
   $("admin-back").href = `#/v/${encodeURIComponent(id)}`;
-  ["a-msg","a-code-msg","a-members-msg","a-editors-msg"].forEach(m => setMsg(m, ""));
+  ["a-msg","a-code-msg","a-members-msg"].forEach(m => setMsg(m, ""));
   let s;
   try { s = await getDoc(doc(db, "trips", id)); } catch(_){ s = null; }
   if (seq !== routeSeq) return;
@@ -2225,12 +2231,6 @@ async function renderAdmin(id, seq){
   $("a-cover-prev").innerHTML = coverSrc({id, ...t}) ? `<img src="${coverSrc({id, ...t})}" alt="">` : "";
   $("a-share").value = shareLink(id);
   $("a-code-new").value = "";
-  $("a-editors-panel").hidden = user?.email !== OWNER_EMAIL;
-  $("a-video-panel").hidden = user?.email !== OWNER_EMAIL;
-  const c = S3CFG || {};
-  $("v-endpoint").value = (c.scheme === "http" ? "http://" : "") + (c.endpoint || ""); $("v-bucket").value = c.bucket || ""; $("v-keyid").value = c.keyId || ""; $("v-appkey").value = c.appKey || ""; $("v-public").value = c.publicBase || "";
-  setMsg("v-msg", S3CFG ? "Stockage des vidéos configuré." : "", S3CFG ? "ok" : null);
-  $("a-editors").value = editorEmails.join("\n") || OWNER_EMAIL;
   loadCodes(); loadMembers();
 }
 async function loadCodes(){
@@ -2381,12 +2381,65 @@ $("v-save").onclick = async () => {
   try { await setDoc(doc(db, "config/storage"), cfg); S3CFG = cfg.keyId ? cfg : null; setMsg("v-msg", "Réglages des vidéos enregistrés.", "ok"); }
   catch(_){ setMsg("v-msg", "L'enregistrement a échoué.", "err"); }
 };
-$("a-editors-save").onclick = async () => {
-  const emails = [...new Set($("a-editors").value.split(/[\s,;]+/).map(s => s.trim().toLowerCase()).filter(s => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s)))];
-  if (!emails.includes(OWNER_EMAIL)) emails.unshift(OWNER_EMAIL);
-  try { await setDoc(doc(db, "config/editors"), {emails}); editorEmails = emails; $("a-editors").value = emails.join("\n"); setMsg("a-editors-msg", "Éditeurs enregistrés.", "ok"); }
-  catch(_){ setMsg("a-editors-msg", "L'enregistrement a échoué.", "err"); }
-};
+/* =================================================================== */
+/* Administration de l'appli : éditeurs et stockage (propriétaire seul) */
+/* =================================================================== */
+const isOwner = () => isEditor && user?.email === OWNER_EMAIL;
+const emailOk = s => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
+function renderAppAdmin(){
+  if (!isOwner()){ location.hash = "#/"; return; }
+  document.title = `Administration · ${APP}`;
+  show("screen-appadmin"); setMsg("ed-msg", "");
+  renderEditors();
+  const c = S3CFG || {};
+  $("v-endpoint").value = (c.scheme === "http" ? "http://" : "") + (c.endpoint || ""); $("v-bucket").value = c.bucket || ""; $("v-keyid").value = c.keyId || ""; $("v-appkey").value = c.appKey || ""; $("v-public").value = c.publicBase || "";
+  setMsg("v-msg", S3CFG ? "Stockage des vidéos configuré." : "", S3CFG ? "ok" : null);
+}
+function renderEditors(){
+  const list = [...new Set([OWNER_EMAIL, ...editorEmails])];
+  $("ed-list").innerHTML = list.map(e => `<li><span class="ed-av">${esc(initials(e))}</span><span class="ed-mail">${esc(e)}${e === OWNER_EMAIL ? " <small>(toi)</small>" : ""}</span>
+    ${e === OWNER_EMAIL ? "" : `<button class="btn ghost" type="button" data-ed-invite="${esc(e)}">Inviter</button><button class="btn ghost danger" type="button" data-ed-del="${esc(e)}" aria-label="Retirer ${esc(e)}">Retirer</button>`}</li>`).join("");
+}
+async function saveEditors(emails){
+  emails = [...new Set([OWNER_EMAIL, ...emails.map(s => s.trim().toLowerCase()).filter(emailOk)])];
+  await setDoc(doc(db, "config/editors"), {emails}); editorEmails = emails; renderEditors();
+}
+const inviteLink = email => `${location.origin}${location.pathname}#/editeur/${encodeURIComponent(email)}`;
+async function sendInvite(email){
+  const url = inviteLink(email);
+  const text = `Je t'invite à publier tes photos dans « ${APP} » 📸\nOuvre ce lien et connecte-toi avec ${email} (avec Google, ou en créant un mot de passe) :\n${url}`;
+  if (navigator.share){ try { await navigator.share({ title: APP, text }); return; } catch(err){ if (err?.name === "AbortError") return; } }
+  try { await navigator.clipboard.writeText(text); toast("Invitation copiée : colle-la dans WhatsApp, SMS ou e-mail"); }
+  catch(_){ prompt("Copie cette invitation :", text); }
+}
+$("ac-appadmin").onclick = () => { $("acct").hidden = true; };
+$("ed-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const email = $("ed-email").value.trim().toLowerCase();
+  if (!emailOk(email)) return setMsg("ed-msg", "Cette adresse e-mail n'est pas valide.", "err");
+  try {
+    if (!editorEmails.includes(email)) await saveEditors([...editorEmails, email]);
+    $("ed-email").value = ""; setMsg("ed-msg", `${email} est éditeur. Envoie-lui l'invitation.`, "ok");
+    sendInvite(email);
+  } catch(_){ setMsg("ed-msg", "L'enregistrement a échoué. Réessaie.", "err"); }
+});
+$("ed-list").addEventListener("click", async e => {
+  const inv = e.target.closest("[data-ed-invite]"); if (inv) return sendInvite(inv.dataset.edInvite);
+  const del = e.target.closest("[data-ed-del]"); if (!del) return;
+  const email = del.dataset.edDel;
+  if (!confirm(`Retirer ${email} des éditeurs ? Il ne pourra plus publier ni modifier les voyages.`)) return;
+  try { await saveEditors(editorEmails.filter(x => x !== email)); setMsg("ed-msg", `${email} n'est plus éditeur.`, "ok"); }
+  catch(_){ setMsg("ed-msg", "La modification a échoué. Réessaie.", "err"); }
+});
+/* Lien d'invitation : la connexion éditeur s'ouvre, l'adresse est déjà remplie. */
+async function openInvite(email, seq){
+  history.replaceState(null, "", "#/");
+  await renderHome(seq);
+  if (isEditor){ toast("Tu es déjà connecté comme éditeur : tu peux ajouter des photos."); return; }
+  openAccount(true);
+  $("ac-email").value = email || "";
+  setMsg("ac-login-msg", `Bienvenue ! Tu es invité(e) comme éditeur. Si ${email || "ton adresse"} est une adresse Gmail, touche « Continuer avec Google ». Sinon, choisis un mot de passe et touche « Créer mon compte » (puis confirme ton adresse avec le lien reçu par e-mail).`, "ok");
+}
 
 /* ---------- Démarrage ---------- */
 fillDatalists();

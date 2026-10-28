@@ -47,7 +47,7 @@ const log = (...a) => console.log('•', ...a), txt = s => s.replace(/\s+/g, ' '
   log('message :', txt(await p.textContent('#add-msg')));
   await p.click('#add-cancel');
   // Réglages : stockage des vidéos
-  await p.goto('http://127.0.0.1:8000/#/v/malte-2026/admin'); await p.waitForSelector('#a-video-panel:not([hidden])');
+  await p.goto('http://127.0.0.1:8000/#/admin'); await p.waitForSelector('#screen-appadmin:not([hidden]) #a-video-panel');
   await p.fill('#v-endpoint', 'http://127.0.0.1:9000'); await p.fill('#v-bucket', 'seau'); await p.fill('#v-keyid', '003abc'); await p.fill('#v-appkey', 'K003secret');
   await p.fill('#v-public', 'http://127.0.0.1:9000/file/seau');
   await p.click('#v-test'); await p.waitForFunction(() => /Tout fonctionne|impossible|refusé|lisible/.test(document.querySelector('#v-msg').textContent));
