@@ -15,7 +15,7 @@ async function setup(ctx){
   await ctx.route(/leaflet\.min\.css$/, r => r.fulfill({ path: R + '/node_modules/leaflet/dist/leaflet.css', contentType: 'text/css' }));
   await ctx.route(/exifr@7\.1\.3/, r => r.fulfill({ path: R + '/node_modules/exifr/dist/lite.umd.js', contentType: 'text/javascript' }));
   await ctx.route(/fonts\.googleapis|fonts\.gstatic|geoboundaries/, r => r.abort());
-  await ctx.route(/basemaps\.cartocdn\.com/, r => r.fulfill({ body: blankPng, contentType: 'image/png' }));
+  await ctx.route(/basemaps\.cartocdn\.com|arcgisonline/, r => r.fulfill({ body: blankPng, contentType: 'image/png' }));
   await ctx.route(/nominatim\.openstreetmap\.org/, r => r.fulfill({ contentType: 'application/json', headers: {'access-control-allow-origin': '*'}, body: JSON.stringify({ name: '', address: { village: 'Lieu OSM test' } }) }));
   await ctx.route(/127\.0\.0\.1:8000\/firebase-config\.js/, r => r.fulfill({ body: testCfg, contentType: 'text/javascript' }));
 }
@@ -74,7 +74,7 @@ const log = (...a) => console.log('•', ...a);
   await p.click('#lb-close');
   // Plan des rues
   await p.click('#btn-streets');
-  log('plan des rues :', await p.getAttribute('#btn-streets', 'aria-pressed'), await p.$$eval('.leaflet-tile', t => t.length) + ' tuiles');
+  log('fond de carte :', await p.textContent('#map-style-name'), await p.$$eval('.leaflet-tile', t => t.length) + ' tuiles');
   await p.click('#btn-streets');
   // ---------- Visiteur ----------
   const vc = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, timezoneId: 'America/New_York' });

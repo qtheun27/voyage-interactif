@@ -661,3 +661,13 @@ h1.appname{white-space:normal!important;overflow:visible!important;text-overflow
 @keyframes chap{from{opacity:0;transform:translateY(14px) scale(.96);letter-spacing:.2em}to{opacity:1;transform:none;letter-spacing:.02em}}
 .stop img,.leg img,.chapter img{-webkit-user-drag:none;user-select:none;-webkit-user-select:none}
 .stop > .rowedit + button[data-open]{padding-right:0}
+
+/* Fond « Paysage » : vue du ciel adoucie et lumineuse, noms des lieux par-dessus */
+.photo-tiles{filter:saturate(1.18) contrast(1.06) brightness(1.08)}
+.label-tiles{filter:drop-shadow(0 0 1px rgba(255,255,255,.6))}
+[data-style="paysage"] .route-under{stroke:#fff!important;stroke-opacity:.8}
+[data-style="paysage"] .route{stroke-width:4}
+[data-style="paysage"] .leaflet-container{background:#0d3a4f}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .photo-tiles{filter:saturate(1.05) brightness(.85)}}
+.panel [data-action="share-trip"]{width:100%;margin:4px 0 10px}
+.panel [data-action="share-trip"] svg,.editor-tools [data-action="share-trip"] svg{width:18px;height:18px}
