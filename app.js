@@ -166,6 +166,8 @@ function fmtDates(t){
   return a ? `Dès le ${f.format(a)}` : b ? `Jusqu'au ${f.format(b)}` : "";
 }
 const shareLink = id => `${location.origin}${location.pathname}#/v/${encodeURIComponent(id)}`;
+// Lien pour les proches : voyage et code dans l'adresse elle-même (« ?v=…&c=… »), que toutes les messageries gardent intacte.
+const visitLink = (id, code) => `${location.origin}${location.pathname}?v=${encodeURIComponent(id)}&c=${encodeURIComponent(code)}`;
 function fillDatalists(){
   $("dl-countries").innerHTML = COUNTRIES.map(([c,n]) => `<option value="${c}">${esc(n)}</option>`).join("");
   let tzs = []; try { tzs = Intl.supportedValuesOf("timeZone"); } catch(_){ tzs = COUNTRIES.map(c => c[2]); }
@@ -565,34 +567,44 @@ $("nt-form").addEventListener("submit", async e => {
 /* Accès avec code                                                     */
 /* =================================================================== */
 let gateTrip = null, linkCode = null;
-function showGate(id, msg){
+/* Entrer dans un voyage avec son code (visiteur, sans compte) : null si c'est bon, sinon le message à afficher. */
+async function joinTrip(id, code){
+  const wrong = `Ce code n'est pas le bon. Vérifie-le auprès de ${OWNER_NAME}.`;
+  if (code.length < 4) return wrong;
+  gateBusy = true;
+  try {
+    if (!auth.currentUser) await signInAnonymously(auth);
+    await setDoc(doc(db, `trips/${id}/members/${auth.currentUser.uid}`), { code, joinedAt: serverTimestamp() });
+    return null;
+  } catch(err){
+    return err?.code === "permission-denied" ? wrong
+      : err?.code === "auth/admin-restricted-operation" || err?.code === "auth/operation-not-allowed" ? "L'accès visiteur n'est pas encore activé (connexion anonyme dans Firebase)."
+      : "Impossible d'ouvrir le carnet. Vérifie la connexion internet puis réessaie.";
+  } finally { gateBusy = false; }
+}
+async function showGate(id, msg){
   gateTrip = id; document.title = APP;
+  // Arrivé par le lien partagé (avec le code) : on entre tout seul, sans afficher l'écran du code.
+  if (!msg && linkCode?.id === id){
+    const code = linkCode.code; linkCode = null;
+    $("boot").hidden = false; $("boot-text").textContent = "Ouverture du carnet…";
+    SCREENS.forEach(s => $(s).hidden = true);
+    const err = await joinTrip(id, code);
+    if (!err) return openTrip(id, ++routeSeq, true);
+    msg = err;
+  }
   show("screen-gate"); setMsg("gate-msg", msg || "", msg ? "err" : null);
   $("gate-code").value = "";
-  // Arrivé par un lien avec le code : on entre tout seul.
-  if (!msg && linkCode?.id === id){ $("gate-code").value = linkCode.code; linkCode = null; $("gate-form").requestSubmit(); return; }
   setTimeout(() => $("gate-code").focus(), 50);
 }
 $("gate-form").addEventListener("submit", async e => {
   e.preventDefault();
-  const code = normCode($("gate-code").value);
-  const wrong = `Ce code n'est pas le bon. Vérifie-le auprès de ${OWNER_NAME}.`;
-  if (code.length < 4) return setMsg("gate-msg", wrong, "err");
   $("gate-submit").disabled = true; setMsg("gate-msg", "Vérification…");
-  gateBusy = true;
-  try {
-    if (!auth.currentUser) await signInAnonymously(auth);
-    await setDoc(doc(db, `trips/${gateTrip}/members/${auth.currentUser.uid}`), { code, joinedAt: serverTimestamp() });
-    setMsg("gate-msg", "");
-    $("gate-submit").disabled = false; gateBusy = false;
-    return openTrip(gateTrip, ++routeSeq, true);
-  } catch(err){
-    setMsg("gate-msg", err?.code === "permission-denied" ? wrong
-      : err?.code === "auth/admin-restricted-operation" || err?.code === "auth/operation-not-allowed" ? "L'accès visiteur n'est pas encore activé (connexion anonyme dans Firebase)."
-      : "Impossible de vérifier le code. Vérifie la connexion internet.", "err");
-  }
-  gateBusy = false;
+  const err = await joinTrip(gateTrip, normCode($("gate-code").value));
   $("gate-submit").disabled = false;
+  if (err) return setMsg("gate-msg", err, "err");
+  setMsg("gate-msg", "");
+  return openTrip(gateTrip, ++routeSeq, true);
 });
 
 /* =================================================================== */
@@ -2286,7 +2298,7 @@ async function loadCodes(){
   try { A.codes = (await getDocs(collection(db, `trips/${A.id}/codes`))).docs.map(d => d.id); }
   catch(_){ A.codes = []; }
   $("a-code-current").textContent = A.codes.length ? A.codes.join(" · ") : "aucun (personne ne peut entrer)";
-  $("a-share").value = A.codes.length ? `${shareLink(A.id)}/c/${encodeURIComponent(A.codes[0])}` : shareLink(A.id);
+  $("a-share").value = A.codes.length ? visitLink(A.id, A.codes[0]) : shareLink(A.id);
 }
 async function loadMembers(){
   try { const n = (await getCountFromServer(collection(db, `trips/${A.id}/members`))).data().count;
@@ -2363,7 +2375,7 @@ async function shareTrip(id){
   let codes = [], t = (T.id === id ? T.trip : A.id === id ? A.trip : null) || {};
   try { codes = (await getDocs(collection(db, `trips/${id}/codes`))).docs.map(d => d.id); } catch(_){}
   if (!codes.length){ toast("Crée d'abord un code d'accès dans les réglages du voyage."); return; }
-  const code = codes[0], url = `${shareLink(id)}/c/${encodeURIComponent(code)}`;
+  const code = codes[0], url = visitLink(id, code);
   const text = `Suis notre voyage « ${t.title || id} » en photos, en direct 🌍\nTouche le lien pour ouvrir le carnet :\n${url}\n\n(Si on te le demande, le code est ${code})`;
   if (navigator.share){
     try { await navigator.share({ title: t.title || APP, text }); return; } catch(err){ if (err?.name === "AbortError") return; }
@@ -2493,5 +2505,13 @@ async function openInvite(email, seq, trip){
 }
 
 /* ---------- Démarrage ---------- */
+// Lien des proches « ?v=voyage&c=CODE » : on garde le code de côté et l'adresse redevient simple.
+{
+  const q = new URLSearchParams(location.search), v = q.get("v"), c = q.get("c");
+  if (v && idOk(v)){
+    if (c) linkCode = { id: v, code: normCode(c) };
+    history.replaceState(null, "", `${location.pathname}#/v/${encodeURIComponent(v)}`);
+  }
+}
 fillDatalists();
 route(false);
