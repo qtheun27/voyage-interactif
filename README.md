@@ -17,7 +17,7 @@ Des carnets de voyage illustrés : une carte nautique du pays, les photos placé
 2. **GitHub Pages** : servi depuis la branche `gh-pages`, recopiée automatiquement depuis `main` (`.github/workflows/pages.yml`).
 3. Ouvrir `https://qtheun27.github.io/voyage-interactif/`, cliquer sur **Je suis éditeur** et se connecter avec `q.theuninck@gmail.com`.
 4. Sur l'accueil, cliquer sur **Créer « Notre voyage à Malte »** : choisir les dates et le **code d'accès**, puis créer.
-5. Partager `https://qtheun27.github.io/voyage-interactif/#/v/malte-2026` et envoyer le code à part.
+5. Réglages du voyage > **Envoyer le lien et le code** : un seul message, le lien `#/v/{voyage}/c/{CODE}` fait entrer directement (le code est retiré de l'adresse aussitôt).
 
 ## Règles
 
@@ -75,6 +75,10 @@ Pour les proches : écran d'accueil du voyage, **Revivre le voyage** (la carte s
 - Visionneuse : lecture intégrée ; « Revivre le voyage » : la vidéo passe en entier (30 s au plus), muette par défaut, bouton son.
 - Réglages : *Réglages du voyage > Vidéos* (propriétaire) : point d'accès S3, seau, keyID, applicationKey, adresse publique, bouton **Tester**. Enregistrés dans `config/storage`, lisibles par les seuls éditeurs.
 - Le seau doit être **public** et avoir une règle CORS autorisant `https://qtheun27.github.io` pour `s3_put`, `s3_post`, `s3_get`, `s3_head`, `s3_delete`, avec l'en-tête `ETag` exposé.
+
+## Fonds de carte
+
+Bouton de la carte (en haut) : **Paysage** (par défaut : vue du ciel Esri World Imagery adoucie, noms de lieux CARTO par-dessus), **Plan** (CARTO Voyager), **Illustrée** (la carte dessinée du carnet). Le choix est retenu sur l'appareil.
 
 ## Pays et packs
 

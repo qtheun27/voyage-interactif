@@ -243,7 +243,7 @@ function show(id){
 }
 function parseHash(){
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
-  if (parts[0] === "v" && parts[1]) return {name: parts[2] === "admin" ? "admin" : "trip", id: parts[1]};
+  if (parts[0] === "v" && parts[1]) return {name: parts[2] === "admin" ? "admin" : "trip", id: parts[1], code: parts[2] === "c" ? parts[3] : null};
   return {name:"home"};
 }
 let routeSeq = 0;
@@ -251,6 +251,8 @@ async function route(authChanged){
   if (!configured){ $("boot-text").textContent = "Firebase n'est pas encore configuré : remplis firebase-config.js."; $("boot").querySelector(".spinner").hidden = true; return; }
   await authReady;
   const seq = ++routeSeq, r = parseHash();
+  // Lien partagé avec le code : on le garde de côté et on l'efface de l'adresse.
+  if (r.code){ linkCode = { id: r.id, code: normCode(r.code) }; history.replaceState(null, "", `#/v/${encodeURIComponent(r.id)}`); }
   if (r.name !== "trip") closeTrip();
   if (r.name === "home") return renderHome(seq);
   if (r.name === "admin") return renderAdmin(r.id, seq);
@@ -543,11 +545,14 @@ $("nt-form").addEventListener("submit", async e => {
 /* =================================================================== */
 /* Accès avec code                                                     */
 /* =================================================================== */
-let gateTrip = null;
+let gateTrip = null, linkCode = null;
 function showGate(id, msg){
   gateTrip = id; document.title = APP;
   show("screen-gate"); setMsg("gate-msg", msg || "", msg ? "err" : null);
-  $("gate-code").value = ""; setTimeout(() => $("gate-code").focus(), 50);
+  $("gate-code").value = "";
+  // Arrivé par un lien avec le code : on entre tout seul.
+  if (!msg && linkCode?.id === id){ $("gate-code").value = linkCode.code; linkCode = null; $("gate-form").requestSubmit(); return; }
+  setTimeout(() => $("gate-code").focus(), 50);
 }
 $("gate-form").addEventListener("submit", async e => {
   e.preventDefault();
@@ -574,7 +579,7 @@ $("gate-form").addEventListener("submit", async e => {
 /* =================================================================== */
 /* Voyage : carte et carnet                                            */
 /* =================================================================== */
-const T = { id:null, trip:null, tz:"UTC", F:null, pack:null, land:null, map:null, layers:null, streets:null, streetsOn:false,
+const T = { id:null, trip:null, tz:"UTC", F:null, pack:null, land:null, map:null, layers:null, styles:null, mapStyle:"paysage",
   home:null, overview:false, view:"carnet", unsubs:[], photos:[], J:null, entries:[], flat:[], filterDay:null, active:null,
   loaded:false, autoNames:{}, mine:new Set(), reacts:new Map(), comments:[] };
 
@@ -595,7 +600,7 @@ function closeTrip(){
   if (T.map){ T.map.remove(); T.map = null; }
   ["lb","add","place","hero","legsheet"].forEach(id => $(id).hidden = true);
   Object.assign(T, { id:null, trip:null, photos:[], J:null, entries:[], flat:[], filterDay:null, active:null, loaded:false,
-    autoNames:{}, streetsOn:false, overview:false, mine:new Set(), reacts:new Map(), comments:[] });
+    autoNames:{}, overview:false, mine:new Set(), reacts:new Map(), comments:[] });
 }
 
 async function openTrip(id, seq, force){
@@ -756,22 +761,38 @@ async function buildMap(){
     w.classList.toggle("z-close", z >= 12); w.classList.toggle("z-mid", z >= 10.75); w.classList.toggle("z-far", z < 8); };
   map.on("zoomend", syncZoom); syncZoom();
   T.layers = { route: L.layerGroup().addTo(map), legpics: L.layerGroup().addTo(map), pins: L.layerGroup().addTo(map), story: L.layerGroup().addTo(map) };
-  T.streets = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-    subdomains:"abcd", maxZoom:20, className:"streets-tiles",
-    attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>'
-  });
+  // Trois fonds : « Paysage » (vue du ciel adoucie : verdure, villes, mer, avec le nom des lieux), « Plan » (les rues),
+  // « Illustrée » (la carte dessinée du carnet).
+  const carto = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+  T.styles = {
+    paysage: L.layerGroup([
+      L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+        maxZoom:19, maxNativeZoom:18, className:"photo-tiles", attribution:"Vue du ciel © Esri, Maxar, Earthstar Geographics" }),
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png", {
+        subdomains:"abcd", maxZoom:20, className:"label-tiles", attribution:carto })
+    ]),
+    plan: L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { subdomains:"abcd", maxZoom:20, className:"streets-tiles", attribution:carto }),
+    illustree: null
+  };
   map.on("click", e => { if (picking) endPick(e.latlng); });
-  setStreets(!country);
+  let pref = null; try { pref = localStorage.getItem("vi.mapStyle"); } catch(_){}
+  setMapStyle(pref in MAP_STYLES ? pref : "paysage");
   setTimeout(() => map.invalidateSize(), 0);
 }
-function setStreets(on){
-  T.streetsOn = on;
+const MAP_STYLES = { paysage: "Paysage", plan: "Plan", illustree: "Illustrée" };
+function setMapStyle(s){
+  T.mapStyle = s;
   if (!T.map) return;
-  if (on) T.streets.addTo(T.map); else T.streets.remove();
-  $("mapwrap").classList.toggle("streets", on);
-  $("btn-streets").setAttribute("aria-pressed", String(on));
+  Object.entries(T.styles).forEach(([k, l]) => { if (!l) return; if (k === s) l.addTo(T.map); else l.remove(); });
+  $("mapwrap").classList.toggle("streets", s !== "illustree");
+  $("mapwrap").dataset.style = s;
+  $("map-style-name").textContent = MAP_STYLES[s];
+  try { localStorage.setItem("vi.mapStyle", s); } catch(_){}
 }
-$("btn-streets").onclick = () => setStreets(!T.streetsOn);
+$("btn-streets").onclick = () => {
+  const ks = Object.keys(MAP_STYLES), next = ks[(ks.indexOf(T.mapStyle) + 1) % ks.length];
+  setMapStyle(next); toast(`Carte : ${MAP_STYLES[next]}`);
+};
 $("btn-overview").onclick = () => { T.overview = !T.overview; $("btn-overview").setAttribute("aria-pressed", String(T.overview)); renderMap(true); };
 
 /* ---------- Le récit : étapes et trajets ---------- */
@@ -2209,6 +2230,7 @@ async function loadCodes(){
   try { A.codes = (await getDocs(collection(db, `trips/${A.id}/codes`))).docs.map(d => d.id); }
   catch(_){ A.codes = []; }
   $("a-code-current").textContent = A.codes.length ? A.codes.join(" · ") : "aucun (personne ne peut entrer)";
+  $("a-share").value = A.codes.length ? `${shareLink(A.id)}/c/${encodeURIComponent(A.codes[0])}` : shareLink(A.id);
 }
 async function loadMembers(){
   try { const n = (await getCountFromServer(collection(db, `trips/${A.id}/members`))).data().count;
@@ -2280,8 +2302,23 @@ $("admin-form").addEventListener("submit", async e => {
   } catch(err){ setMsg("a-msg", err?.message === "format" ? "Cette image n'est pas lisible ici. Choisis un JPEG." : "L'enregistrement a échoué. Réessaie.", "err"); }
   $("a-save").disabled = false;
 });
+/* Partager : un seul message avec le lien (qui contient le code) et le code écrit en clair. */
+async function shareTrip(id){
+  let codes = [], t = (T.id === id ? T.trip : A.id === id ? A.trip : null) || {};
+  try { codes = (await getDocs(collection(db, `trips/${id}/codes`))).docs.map(d => d.id); } catch(_){}
+  if (!codes.length){ toast("Crée d'abord un code d'accès dans les réglages du voyage."); return; }
+  const code = codes[0], url = `${shareLink(id)}/c/${encodeURIComponent(code)}`;
+  const text = `Suis notre voyage « ${t.title || id} » en photos, en direct 🌍\nTouche le lien pour ouvrir le carnet :\n${url}\n\n(Si on te le demande, le code est ${code})`;
+  if (navigator.share){
+    try { await navigator.share({ title: t.title || APP, text }); return; } catch(err){ if (err?.name === "AbortError") return; }
+  }
+  try { await navigator.clipboard.writeText(text); toast("Message copié : colle-le dans WhatsApp, SMS ou e-mail"); }
+  catch(_){ prompt("Copie ce message :", text); }
+}
+document.addEventListener("click", e => { const b = e.target.closest('[data-action="share-trip"]'); if (b){ const id = A.id && !$("screen-admin").hidden ? A.id : T.id; if (id) shareTrip(id); } });
+
 $("a-copy").onclick = async () => {
-  try { await navigator.clipboard.writeText($("a-share").value); toast("Lien copié"); }
+  try { await navigator.clipboard.writeText($("a-share").value); toast("Lien copié (le code est dedans)"); }
   catch(_){ $("a-share").select(); document.execCommand?.("copy"); toast("Lien copié"); }
 };
 $("a-code-gen").onclick = () => $("a-code-new").value = genCode(A.trip?.country || "");

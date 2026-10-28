@@ -87,9 +87,9 @@
       <div class="status" id="status"><span class="pill calm">Chargement</span></div>
     </div>
     <div class="top-actions">
-      <button class="btn" id="btn-streets" type="button" aria-pressed="false">
+      <button class="btn" id="btn-streets" type="button" aria-label="Changer le fond de carte">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg>
-        <span>Plan des rues</span>
+        <span id="map-style-name">Paysage</span>
       </button>
       <button class="btn primary" id="btn-replay" type="button" disabled>
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
@@ -124,6 +124,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 21s7-7.5 7-12a7 7 0 0 0-14 0c0 4.5 7 12 7 12z"/><path d="M12 6v6M9 9h6"/></svg>
             Lieu sans photo
           </button>
+          <button class="btn ghost" type="button" data-action="share-trip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>Partager</button>
         </div>
       </div>
       <p class="drag-hint" id="drag-hint" hidden>Astuce : appui long sur une étape pour la glisser dans une autre.</p>
@@ -173,7 +174,8 @@
 
     <section class="panel">
       <h2>Partager</h2>
-      <p class="muted">Envoie ce lien, puis le code d'accès séparément. Le code n'est jamais dans le lien.</p>
+      <p class="muted">Un seul message avec le lien et le code : en touchant le lien, tes proches arrivent directement dans le carnet, sans rien taper.</p>
+      <button class="btn primary big" type="button" data-action="share-trip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>Envoyer le lien et le code</button>
       <div class="join-row"><input type="text" id="a-share" readonly><button class="btn" type="button" id="a-copy">Copier</button></div>
     </section>
 
