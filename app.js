@@ -1666,7 +1666,26 @@ function renderAdd(){
   $("add-submit").disabled = !(n || ups) || adding;
 }
 $("f-when").addEventListener("change", renderAdd);
+/* Entre le « ✓ » de la photothèque et l'arrivée des fichiers, l'iPhone copie et convertit (surtout les vidéos) :
+   un écran d'attente avec le temps écoulé, prêt dès l'ouverture de la photothèque, retiré à l'arrivée des fichiers. */
+let prepTimer = null, prepAt = 0;
+function prepShow(){
+  prepAt = Date.now(); clearInterval(prepTimer);
+  $("prep-time").textContent = "0 s"; $("prep-hint").textContent = "Les vidéos sont copiées une par une : cela peut prendre une ou deux minutes. Garde cette page ouverte.";
+  $("prep").hidden = false;
+  prepTimer = setInterval(() => {
+    const s = Math.round((Date.now() - prepAt) / 1000);
+    $("prep-time").textContent = s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")}`;
+    if (s === 20) $("prep-hint").textContent = "Toujours en cours… Beaucoup de vidéos ou de longues vidéos prennent plus de temps. Si tu as annulé la sélection, touche Fermer.";
+    if (s > 600) prepHide();
+  }, 1000);
+}
+function prepHide(){ clearInterval(prepTimer); $("prep").hidden = true; }
+$("prep-close").onclick = prepHide;
+$("f-photos").addEventListener("click", () => setTimeout(prepShow, 300));
+$("f-photos").addEventListener("cancel", prepHide);
 $("f-photos").addEventListener("change", async e => {
+  prepHide();
   const files = [...e.target.files]; e.target.value = "";
   if (!files.length || !T.trip) return;
   pending.forEach(p => URL.revokeObjectURL(p.preview));
@@ -1674,7 +1693,8 @@ $("f-photos").addEventListener("change", async e => {
   $("add-form").reset(); $("more").open = false; fillPlaceSelect(); $("f-results").hidden = true;
   $("f-when").value = toLocalInput(T.tz, Date.now());
   $("add").hidden = false; $("plan").innerHTML = ""; $("where").hidden = true; addMsg("");
-  $("progress").hidden = false; $("add-submit").disabled = true; $("add-title").textContent = `${files.length} photo${files.length>1?"s":""}`;
+  $("progress").hidden = false; $("add-submit").disabled = true; const nvid = files.filter(isVideoFile).length, nph = files.length - nvid;
+  $("add-title").textContent = [nph ? `${nph} photo${nph>1?"s":""}` : "", nvid ? `${nvid} vidéo${nvid>1?"s":""}` : ""].filter(Boolean).join(" et ");
   const bar = $("progress").firstElementChild; let done = 0;
   const isDup = dupChecker();
   const items = new Array(files.length);
@@ -1694,7 +1714,7 @@ $("f-photos").addEventListener("change", async e => {
     items[k] = {file:f, preview, key, dup, dupOf, upgrade, metaLat: stale ? null : m.lat, metaLng: stale ? null : m.lng, stale, staleLat: stale ? m.lat : null, staleLng: stale ? m.lng : null,
       gpsAt: m.gpsAt, metaAt: m.at, timeSrc: stripped ? null : m.timeSrc, device: m.device, video, stripped, duration: m.duration || null, vw: m.width, vh: m.height};
     done++; bar.style.width = `${done / files.length * 100}%`;
-    $("summary").innerHTML = `<div class="row"><b>…</b><span>Lecture : ${done} sur ${files.length}</span></div>`;
+    readProgress(done, files.length, items, files.filter(isVideoFile).length);
   });
   // Doublons à l'intérieur de la sélection
   const seen = new Set(); items.forEach(p => { if (seen.has(p.key)) p.dup = true; seen.add(p.key); });
@@ -1702,6 +1722,11 @@ $("f-photos").addEventListener("change", async e => {
   $("progress").hidden = true; bar.style.width = "0";
   renderAdd();
 });
+function readProgress(done, total, items, nv){
+  const got = items.filter(Boolean), thumbs = got.slice(-24).map(p => p.preview ? `<img src="${esc(p.preview)}" alt="">` : `<i></i>`).join("");
+  $("summary").innerHTML = `<div class="readprog"><div class="row"><span class="spinner" aria-hidden="true"></span><span><b>Lecture des photos : ${done} sur ${total}</b>
+    <small>Heure et lieu lus dans chaque photo${nv ? ` · ${nv} vidéo${nv>1?"s":""} (un peu plus longues à lire)` : ""}</small></span></div><div class="readthumbs">${thumbs}</div></div>`;
+}
 function closeAdd(){ if (adding) return; pending.forEach(p => URL.revokeObjectURL(p.preview)); pending = []; plan = []; $("add").hidden = true; $("progress").hidden = true; naming2++; }
 $("add-close").onclick = closeAdd; $("add-cancel").onclick = closeAdd;
 $("f-place").addEventListener("change", () => { const p = T.pack?.places?.[$("f-place").value]; if (!p) return; chosen = {lat:p[1], lng:p[2], name:p[0], all:false}; renderAdd(); });
