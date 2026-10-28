@@ -225,6 +225,17 @@
   <input type="file" id="f-photos" accept="image/*,video/*" multiple aria-label="Ajouter des photos et des vidéos">
 </label>
 
+<!-- Pendant que l'iPhone prépare les photos choisies (copie, conversion des vidéos), la page ne reçoit rien : on l'explique. -->
+<div class="prep" id="prep" hidden role="status" aria-live="polite">
+  <div class="prep-card">
+    <span class="spinner big" aria-hidden="true"></span>
+    <b>L'iPhone prépare tes photos…</b>
+    <span class="prep-time" id="prep-time">0 s</span>
+    <small id="prep-hint">Les vidéos sont copiées une par une : cela peut prendre une ou deux minutes. Garde cette page ouverte.</small>
+    <button class="btn" type="button" id="prep-close">Fermer</button>
+  </div>
+</div>
+
 <div class="overlay" id="add" hidden>
   <form class="sheet" id="add-form" novalidate>
     <div class="sheet-head">

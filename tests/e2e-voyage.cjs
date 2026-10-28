@@ -41,7 +41,14 @@ const txt = s => s.replace(/\s+/g, ' ').trim();
   await p.waitForSelector('#screen-trip:not([hidden])');
   await p.waitForFunction(() => document.querySelector('#status').textContent.includes('Pas encore commencé'));
   const dir = R + '/tests/fixtures/voyage/';
-  await p.setInputFiles('#f-photos', fs.readdirSync(dir).sort().map(f => dir + f));
+  // Photothèque ouverte : écran d'attente pendant que le téléphone prépare les fichiers, puis lecture avec vignettes
+  const [chooser] = await Promise.all([p.waitForEvent('filechooser'), p.click('#fab')]);
+  await p.waitForSelector('#prep:not([hidden])', { timeout: 3000 });
+  await p.waitForTimeout(1300);
+  log('préparation :', txt(await p.textContent('#prep .prep-card b')), '|', await p.textContent('#prep-time'));
+  await chooser.setFiles(fs.readdirSync(dir).sort().map(f => dir + f));
+  await p.waitForSelector('#prep', { state: 'hidden', timeout: 3000 });
+  log('lecture :', await p.waitForFunction(() => document.querySelector('#summary .readprog, #plan .plan-item')).then(() => 'affichée'));
   await p.waitForFunction(() => document.querySelectorAll('#plan .plan-item').length >= 5 && !document.querySelector('#add-submit').disabled);
   await p.waitForTimeout(1500);
   log('résumé :', txt(await p.textContent('#summary')));
