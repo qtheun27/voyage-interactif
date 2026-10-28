@@ -688,3 +688,4 @@ h1.appname{white-space:normal!important;overflow:visible!important;text-overflow
 .ed-add .btn svg{width:17px;height:17px}
 .home-actions{display:flex;gap:8px;flex-wrap:wrap}
 .ed-list .ed-empty{color:var(--muted);border-style:dashed;background:none;font-size:.9rem}
+.gate-tech{display:block;margin-top:14px;text-align:center;color:var(--muted);font:500 .7rem var(--f-mono);opacity:.75}

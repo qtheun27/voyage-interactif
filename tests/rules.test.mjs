@@ -217,3 +217,15 @@ test("éditeur d'un seul voyage : son voyage, pas les autres", async () => {
   await assertFails(getDoc(doc(nv.firestore(), "trips/malte-2026")));
   await assertFails(getDoc(doc(nv.firestore(), "config/storage")));
 });
+
+test("visiteur : retaper le bon code renouvelle l'inscription ; rapports d'erreur", async () => {
+  const v = visitor(); await assertSucceeds(join(v, "malte-2026", "MALTE-26"));
+  await assertSucceeds(join(v, "malte-2026", "MALTE-26"));          // deuxième fois : accepté
+  await assertFails(join(v, "malte-2026", "FAUX-CODE"));
+  await assertFails(setDoc(doc(v.firestore(), "trips/malte-2026/members/v1"), { code: "MALTE-26", joinedAt: 1, admin: true }));
+  const r = { at: 1, step: "entrée", code: "x", msg: "y", ua: "Safari", v: "1", trip: "malte-2026", uid: "v1" };
+  await assertSucceeds(setDoc(doc(v.firestore(), "diag/d1"), r));
+  await assertFails(setDoc(doc(v.firestore(), "diag/d2"), { ...r, uid: "autre" }));
+  await assertFails(getDoc(doc(v.firestore(), "diag/d1")));
+  await assertSucceeds(getDoc(doc(ctx("owner", OWNER).firestore(), "diag/d1")));
+});
