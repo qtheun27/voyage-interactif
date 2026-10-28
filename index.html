@@ -294,6 +294,11 @@
     <label class="f">Nom du trajet <small>Facultatif, par exemple « Vol Ryanair FR 1234 » ou « Ferry pour Gozo »</small><input type="text" id="ls-label" maxlength="80"></label>
     <label class="f">Petit mot <small>Facultatif</small><textarea id="ls-caption" maxlength="600"></textarea></label>
     <label class="check"><input type="checkbox" id="ls-hidden"> Masquer ce trajet dans le carnet (il reste dessiné sur la carte)</label>
+    <div class="row-btns">
+      <button type="button" class="btn danger" id="ls-delete">Supprimer ce trajet</button>
+      <button type="button" class="btn" id="ls-merge">Fusionner les deux étapes</button>
+    </div>
+    <p class="muted" id="ls-help" style="margin:0;font-size:.85rem">Pour changer l'ordre : dans le carnet, appui long sur une étape, puis glisse-la au-dessus ou en dessous d'une autre (au milieu d'une étape, elle s'y range).</p>
     <div class="msg" id="ls-msg" hidden></div>
     <div class="sheet-actions">
       <button type="button" class="btn" data-close="legsheet">Annuler</button>

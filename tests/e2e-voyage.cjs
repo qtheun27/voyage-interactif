@@ -108,6 +108,33 @@ const txt = s => s.replace(/\s+/g, ' ').trim();
   await p.click('#st-play'); log('pause :', await p.evaluate(() => document.querySelector('#story').classList.contains('paused')));
   await p.click('#st-close');
   await p.waitForSelector('#story', { state: 'hidden' });
+  // Changer l'ordre : appui long sur la dernière étape, glissée au-dessus de la deuxième
+  const order = () => p.$$eval('#list .stop .place', e => e.map(x => x.textContent.replace(/position estimée/, '').trim()));
+  const o0 = await order(); log('ordre :', o0.join(' > '));
+  await p.waitForTimeout(1000);
+  const srcRow = p.locator('#list .stop button[data-open]').last(), dstRow = p.locator('#list .stop button[data-open]').nth(o0.length - 2);
+  await srcRow.scrollIntoViewIfNeeded(); await p.waitForTimeout(300);
+  const sa = await srcRow.boundingBox(), db2 = await dstRow.boundingBox();
+  await p.mouse.move(sa.x + sa.width / 2, sa.y + sa.height / 2); await p.mouse.down();
+  await p.waitForFunction(() => document.body.classList.contains('dragmode'), null, { timeout: 5000 });
+  await p.mouse.move(db2.x + db2.width / 2, db2.y + 4, { steps: 10 }); await p.waitForTimeout(200);
+  log('insertion visée :', await p.$$eval('#list li.ins-before', e => e.length));
+  await p.mouse.up(); await p.waitForTimeout(1500);
+  const o1 = await order(); log('nouvel ordre :', o1.join(' > '), '|', txt(await p.textContent('#toast')));
+  await p.click('#toast .toast-btn'); await p.waitForTimeout(1500);
+  log('annulé :', (await order()).join(' > ') === o0.join(' > '));
+  // Supprimer un trajet puis le rétablir
+  await p.waitForSelector('#toast', { state: 'hidden', timeout: 10000 }).catch(() => {});
+  const nRoutes = async () => p.$$eval('path.route', e => e.length);
+  const r0 = await nRoutes();
+  await p.click('#list .leg.m-boat .rowedit');
+  await p.waitForSelector('#legsheet:not([hidden])');
+  await p.click('#ls-delete'); await p.waitForTimeout(1200);
+  log('trajet supprimé :', r0, '->', await nRoutes(), 'traits sur la carte | carnet :', txt(await p.textContent('#list .leg.m-boat .leg-title')));
+  await p.click('#list .leg.m-boat .rowedit'); await p.waitForSelector('#legsheet:not([hidden])');
+  log('bouton :', await p.textContent('#ls-delete'));
+  await p.click('#ls-delete'); await p.waitForTimeout(1200);
+  log('rétabli :', await nRoutes(), 'traits');
 
   // ---------- Visiteur sur téléphone ----------
   const vc = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, timezoneId: 'Europe/Brussels' });
