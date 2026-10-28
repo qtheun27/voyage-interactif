@@ -577,3 +577,6 @@ h1.appname{white-space:normal!important;overflow:visible!important;text-overflow
 #namesheet,#acct{z-index:2100}
 .lb-body:has(#lb-edit:not([hidden])) .social{display:none}
 .toast-btn{margin-left:8px;border:1px solid currentColor;background:none;color:inherit;border-radius:8px;padding:3px 10px;font-weight:700}
+.stop.ins-before,.leg.ins-before{box-shadow:0 -4px 0 0 var(--accent)}
+.stop.ins-after,.leg.ins-after{box-shadow:0 4px 0 0 var(--accent)}
+.leg.drop,.leg.ins-before,.leg.ins-after{box-shadow:0 0 0 3px var(--accent);border-radius:12px}

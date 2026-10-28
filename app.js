@@ -814,7 +814,7 @@ const fmtSec = d => d ? `${Math.floor(d / 60)}:${String(Math.round(d % 60)).padS
 const vbadge = x => x?.video ? `<span class="vbadge"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>${esc(fmtSec(x.video.duration))}</span>` : "";
 function tripStats(){
   const J = T.J, n = T.photos.filter(p => p.hasPhoto && !p.video).length, nv = T.photos.filter(p => p.video).length;
-  const kmTot = J ? J.legs.reduce((s, l) => s + l.km, 0) : 0;
+  const kmTot = J ? J.legs.reduce((s, l) => s + (l.off ? 0 : l.km), 0) : 0;
   return { n, nv, stops: J?.stops.length || 0, days: J?.days.length || 0, km: kmTot,
     last: T.photos.length ? Math.max(...T.photos.map(p => p.created || p.at)) : 0 };
 }
@@ -877,7 +877,7 @@ function legRow(l){
   return `<li class="leg m-${l.mode} ${l.id===T.active?"active":""}${l.hidden?" is-hidden":""}">${isEditor ? `<button type="button" class="rowedit" data-legedit="${esc(l.id)}" aria-label="Modifier le trajet">${PEN}</button>` : ""}
     <button type="button" data-open="${esc(l.id)}" ${l.items.length ? "" : 'data-fly="1"'}>
       <span class="modeico">${modeIcon(l.mode)}</span>
-      <span class="txt"><span class="leg-title">${esc(l.label)}${l.hidden ? ' <span class="tag">masqué</span>' : ""}</span><span class="when">${esc(meta)}</span>${l.caption ? `<span class="cap">${esc(l.caption)}</span>` : ""}
+      <span class="txt"><span class="leg-title">${esc(l.label)}${l.off ? ' <span class="tag">supprimé</span>' : l.hidden ? ' <span class="tag">masqué</span>' : ""}</span><span class="when">${esc(meta)}</span>${l.caption ? `<span class="cap">${esc(l.caption)}</span>` : ""}
       ${ph.length ? `<span class="film">${ph.map(x => `<span class="fi"><img src="${esc(x.thumbUrl)}" alt="" loading="lazy">${vbadge(x)}</span>`).join("")}</span>` : ""}</span>
     </button></li>`;
 }
@@ -927,7 +927,7 @@ function renderMap(fit){
 function drawRoutes(legs){
   T.layers.route.clearLayers();
   legs.forEach(l => {
-    if (l.km < .05) return;
+    if (l.km < .05 || l.off) return;
     const kind = l.mode === "plane" ? "flight" : l.mode === "boat" ? "sea" : l.mode === "walk" ? "walk" : "road";
     const active = l.id === T.active ? " active" : "";
     L.polyline(l.path, {className:"route-under", interactive:false}).addTo(T.layers.route);
@@ -1233,9 +1233,15 @@ function dragStart(ev){
     if (!st.on){ if (Math.hypot(p.clientX - st.x, p.clientY - st.y) > 10) end(); return; }
     e.preventDefault();
     st.ghost.style.transform = `translate(${p.clientX - st.x}px, ${p.clientY - st.y}px) scale(1.03)`;
-    st.ghost.hidden = true; const under = document.elementFromPoint(p.clientX, p.clientY)?.closest("li.stop"); st.ghost.hidden = false;
-    $("list").querySelectorAll("li.drop").forEach(x => x.classList.remove("drop"));
-    st.target = under && under !== li ? under : null; st.target?.classList.add("drop");
+    st.ghost.hidden = true; const under = document.elementFromPoint(p.clientX, p.clientY)?.closest("li.stop, li.leg"); st.ghost.hidden = false;
+    $("list").querySelectorAll("li.drop, li.ins-before, li.ins-after").forEach(x => x.classList.remove("drop", "ins-before", "ins-after"));
+    // Haut ou bas d'une étape, ou sur un trajet : insérer à cet endroit (changer l'ordre). Milieu d'une étape : l'y ranger.
+    st.target = under && under !== li ? under : null; st.where = null;
+    if (st.target){
+      const r = st.target.getBoundingClientRect(), f = (p.clientY - r.top) / r.height;
+      st.where = st.target.classList.contains("leg") ? "leg" : f < .3 ? "before" : f > .7 ? "after" : "in";
+      st.target.classList.add(st.where === "in" ? "drop" : st.where === "after" ? "ins-after" : "ins-before");
+    }
     const sy = p.clientY < 90 ? -14 : p.clientY > innerHeight - 90 ? 14 : 0;
     if (sy) (scroller || window).scrollBy(0, sy);
   };
@@ -1247,9 +1253,17 @@ function dragStart(ev){
     if (!st.on) return;
     suppressClick = true; setTimeout(() => suppressClick = false, 400);
     st.ghost.remove(); li.classList.remove("dragging"); document.body.classList.remove("dragmode");
-    $("list").querySelectorAll("li.drop").forEach(x => x.classList.remove("drop"));
-    const src = T.J.stops.find(s => s.id === st.id), dst = st.target && T.J.stops.find(s => s.id === st.target.querySelector("[data-open]")?.dataset.open);
-    if (src && dst) moveItemsTo(src.items, dst).catch(() => toast("Le rangement a échoué."));
+    $("list").querySelectorAll("li.drop, li.ins-before, li.ins-after").forEach(x => x.classList.remove("drop", "ins-before", "ins-after"));
+    const src = T.J.stops.find(s => s.id === st.id), tid = st.target?.querySelector("[data-open]")?.dataset.open;
+    if (!src || !tid) return;
+    if (st.where === "in"){ const dst = T.J.stops.find(s => s.id === tid); if (dst) moveItemsTo(src.items, dst).catch(() => toast("Le rangement a échoué.")); return; }
+    // Insertion : entre l'étape de départ et celle d'arrivée du trajet, ou avant / après l'étape visée.
+    const stops = T.J.stops.filter(s => s !== src);
+    let k;
+    if (st.where === "leg"){ const l = T.J.legs.find(x => x.id === tid); k = l?.to ? stops.indexOf(l.to) : stops.length; }
+    else { const s = stops.find(x => x.id === tid); k = stops.indexOf(s) + (st.where === "after" ? 1 : 0); }
+    if (k < 0) return;
+    reorderStop(src, stops[k - 1] || null, stops[k] || null).catch(() => toast("Le déplacement a échoué."));
   };
   st.timer = setTimeout(() => {
     st.on = true; navigator.vibrate?.(25);
@@ -1260,6 +1274,18 @@ function dragStart(ev){
   }, 450);
   document.addEventListener("touchmove", move, {passive: false}); document.addEventListener("mousemove", move);
   ["touchend", "touchcancel", "mouseup"].forEach(t => document.addEventListener(t, end));
+}
+/* Changer l'ordre : l'étape prend des heures entre ses nouvelles voisines (marquées estimées). « Annuler » remet tout. */
+async function reorderStop(src, prev, next){
+  const its = src.items, n = its.length;
+  const a = prev ? prev.end : (next ? next.at - 3600e3 : src.at), b = next ? next.at : a + 2 * 3600e3;
+  if (prev && next && b - a < (n + 2) * 1000) return toast("Pas de place entre ces deux étapes : change plutôt l'heure dans « Modifier ».");
+  const step = (b - a) / (n + 1);
+  const before = its.map(x => ({ at: x.at, approxTime: !!x.approxTime, stopRef: x.stopRef || "", joinPrev: !!x.joinPrev, splitHere: !!x.splitHere, moving: !!x.moving, still: !!x.still }));
+  await updateEach(its, x => ({ at: Math.round(a + step * (its.indexOf(x) + 1)), approxTime: true, stopRef: "", joinPrev: its.indexOf(x) > 0, splitHere: its.indexOf(x) === 0, moving: false, still: true }));
+  toast(`« ${src.place || "Étape"} » déplacée${prev ? ` après « ${prev.place || "l'étape"} »` : " au début"}`, async () => {
+    const bt = writeBatch(db); its.forEach((x, i) => bt.update(stopRef(x.id), before[i])); await bt.commit(); toast("Déplacement annulé");
+  }, "Annuler");
 }
 $("list").addEventListener("touchstart", dragStart, {passive: true});
 $("list").addEventListener("mousedown", dragStart);
@@ -1286,7 +1312,9 @@ function openLegSheet(id){
     ` · ${l.km >= .5 ? fmtKm(l.km) + " km · " : ""}${l.items.length} photo${l.items.length>1?"s":""} en route`;
   $("ls-label").value = legField(l, "legLabel"); $("ls-label").placeholder = l.auto || l.label;
   $("ls-caption").value = legField(l, "legCaption");
-  $("ls-hidden").checked = l.hidden;
+  $("ls-hidden").checked = l.hidden && !l.off;
+  $("ls-delete").textContent = l.off ? "Rétablir ce trajet" : "Supprimer ce trajet";
+  $("ls-merge").hidden = !(l.from && l.to);
   setMsg("ls-msg", "");
   $("legsheet").hidden = false;
 }
@@ -1295,7 +1323,7 @@ document.querySelectorAll('[data-close="legsheet"]').forEach(b => b.onclick = ()
 $("ls-save").onclick = async () => {
   const l = legEditing; if (!l) return;
   const mode = $("ls-modes").querySelector('[aria-pressed="true"]')?.dataset.mode || "";
-  const vals = { arriveBy: mode, legLabel: $("ls-label").value.trim(), legCaption: $("ls-caption").value.trim(), legHidden: $("ls-hidden").checked };
+  const vals = { arriveBy: mode, legLabel: $("ls-label").value.trim(), legCaption: $("ls-caption").value.trim(), legHidden: $("ls-hidden").checked, legOff: !!l.off };
   // Les réglages vont sur la première photo de l'étape d'arrivée (sinon du trajet) ; on les retire des autres.
   const all = [...(l.to?.items || []), ...l.items], holder = all[0];
   $("ls-save").disabled = true; setMsg("ls-msg", "Enregistrement…");
@@ -1305,6 +1333,23 @@ $("ls-save").onclick = async () => {
   } catch(_){ setMsg("ls-msg", "L'enregistrement a échoué. Réessaie.", "err"); }
   $("ls-save").disabled = false;
 };
+/* Supprimer un trajet (il disparaît du carnet, de la carte et du récit ; « Rétablir » le fait revenir). */
+$("ls-delete").onclick = async () => {
+  const l = legEditing; if (!l) return;
+  const all = [...(l.to?.items || []), ...l.items], holder = all[0], off = !l.off;
+  try {
+    await updateEach(all, x => x === holder ? (!!x.legOff !== off ? {legOff: off} : {}) : (x.legOff ? {legOff: false} : {}));
+    $("legsheet").hidden = true;
+    toast(off ? "Trajet supprimé" : "Trajet rétabli", off ? () => updateEach([holder], () => ({legOff: false})) : null, off ? "Annuler" : undefined);
+  } catch(_){ setMsg("ls-msg", "La modification a échoué. Réessaie.", "err"); }
+};
+/* Fusionner l'étape d'arrivée (et les photos prises en route) dans l'étape de départ : le trajet disparaît. */
+$("ls-merge").onclick = async () => {
+  const l = legEditing; if (!l?.from || !l.to) return;
+  try { await moveItemsTo([...l.items, ...l.to.items], l.from); $("legsheet").hidden = true; }
+  catch(_){ setMsg("ls-msg", "La fusion a échoué. Réessaie.", "err"); }
+};
+
 $("e-save").onclick = async () => {
   const { e, i } = lbCur(), it = e.items[i], isStop = e.kind === "stop";
   const name = $("e-name").value.trim(), cap = $("e-caption").value.trim(), t = fromLocalInput(T.tz, $("e-when").value);
@@ -1802,7 +1847,7 @@ function buildFrames(){
     for (let k = 0; keep.size < n && k < n * 3; k++) keep.add(its[Math.round(k * (its.length - 1) / (n * 3 - 1))]);
     return its.filter(x => keep.has(x));
   };
-  visibleEntries().forEach(e => {
+  visibleEntries().filter(e => !e.off).forEach(e => {
     const its = pick(e.items.filter(x => x.hasPhoto), e.kind === "leg" ? 4 : 6);
     if (e.kind === "leg"){
       if (its.length) its.forEach(it => frames.push({e, it, dur: it.video ? Math.min(30, it.video.duration || 10) * 1000 + 400 : 2800 + Math.min(2500, (it.caption || "").length * 35)}));
