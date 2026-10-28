@@ -187,3 +187,33 @@ test("commentaires : créés par les membres, supprimés par l'auteur ou un édi
   await assertSucceeds(deleteDoc(doc(db, "trips/malte-2026/comments/c1")));
   await assertSucceeds(deleteDoc(doc(ctx("owner", OWNER).firestore(), "trips/malte-2026/comments/c6")));
 });
+
+test("éditeur d'un seul voyage : son voyage, pas les autres", async () => {
+  await env.withSecurityRulesDisabled(async c => {
+    const a = c.firestore();
+    await setDoc(doc(a, "trips/malte-2026"), { title: "Malte", country: "MLT", editors: ["cousine@example.com"] });
+    await setDoc(doc(a, "config/editors"), { emails: ["q.theuninck@gmail.com"], tripEmails: ["cousine@example.com"] });
+    await setDoc(doc(a, "config/storage"), { keyId: "k" });
+  });
+  const c = ctx("cz", { email: "cousine@example.com", email_verified: true, firebase: { sign_in_provider: "password" } }), db = c.firestore();
+  const { query, where } = await import("firebase/firestore");
+  await assertSucceeds(getDocs(query(collection(db, "trips"), where("editors", "array-contains", "cousine@example.com"))));
+  await assertFails(getDocs(collection(db, "trips")));                                    // pas la liste de tous les voyages
+  await assertSucceeds(getDoc(doc(db, "trips/malte-2026")));
+  await assertSucceeds(getDocs(collection(db, "trips/malte-2026/stops")));
+  await assertSucceeds(setDoc(doc(db, "trips/malte-2026/stops/n1"), { lat: 1 }));
+  await assertSucceeds(setDoc(doc(db, "trips/malte-2026/photos/n1"), { data: "x" }));
+  await assertSucceeds(updateDoc(doc(db, "trips/malte-2026"), { subtitle: "Octobre" }));
+  await assertFails(updateDoc(doc(db, "trips/malte-2026"), { editors: ["cousine@example.com", "ami@example.com"] })); // ne s'ajoute personne
+  await assertFails(deleteDoc(doc(db, "trips/malte-2026")));
+  await assertSucceeds(getDocs(collection(db, "trips/malte-2026/codes")));
+  await assertSucceeds(getDoc(doc(db, "config/storage")));                                 // pour envoyer vidéos et photos HD
+  await assertFails(getDoc(doc(db, "config/editors")));
+  await assertFails(getDoc(doc(db, "trips/islande-2027")));
+  await assertFails(setDoc(doc(db, "trips/islande-2027/stops/n1"), { lat: 1 }));
+  await assertFails(setDoc(doc(db, "trips/nouveau"), { title: "x" }));
+  // Même adresse non confirmée : rien
+  const nv = ctx("nv", { email: "cousine@example.com", email_verified: false, firebase: { sign_in_provider: "password" } });
+  await assertFails(getDoc(doc(nv.firestore(), "trips/malte-2026")));
+  await assertFails(getDoc(doc(nv.firestore(), "config/storage")));
+});

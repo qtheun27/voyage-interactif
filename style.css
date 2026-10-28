@@ -687,3 +687,4 @@ h1.appname{white-space:normal!important;overflow:visible!important;text-overflow
 .ed-add input{flex:1 1 200px;min-width:0}
 .ed-add .btn svg{width:17px;height:17px}
 .home-actions{display:flex;gap:8px;flex-wrap:wrap}
+.ed-list .ed-empty{color:var(--muted);border-style:dashed;background:none;font-size:.9rem}
