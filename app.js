@@ -574,7 +574,15 @@ async function joinTrip(id, code){
   gateBusy = true;
   try {
     if (!auth.currentUser) await signInAnonymously(auth);
-    await setDoc(doc(db, `trips/${id}/members/${auth.currentUser.uid}`), { code, joinedAt: serverTimestamp() });
+    // La connexion vient d'aboutir : on n'attend pas l'événement de Firebase (il peut arriver après).
+    user = auth.currentUser;
+    const ref = doc(db, `trips/${id}/members/${user.uid}`);
+    try { await setDoc(ref, { code, joinedAt: serverTimestamp() }); }
+    catch(err){
+      // Déjà entré depuis ce téléphone (l'inscription ne se réécrit pas) : c'est bon.
+      if (err?.code === "permission-denied" && (await getDoc(ref).catch(() => null))?.exists()) return null;
+      throw err;
+    }
     return null;
   } catch(err){
     return err?.code === "permission-denied" ? wrong
@@ -638,6 +646,7 @@ async function openTrip(id, seq, force){
   if (!idOk(id)){ location.hash = "#/"; return; }
   if (T.id === id && T.map && !force){ show("screen-trip"); setTimeout(() => T.map?.invalidateSize(), 0); return; }
   closeTrip();
+  if (!user && auth.currentUser) user = auth.currentUser;
   if (!user) return showGate(id);
   let snap;
   try { const c = await getDocFromCache(doc(db, "trips", id)); if (c.exists()) snap = c; } catch(_){}
