@@ -445,7 +445,8 @@
       <div class="edit" id="lb-edit" hidden>
         <label class="f only-stop">Nom du lieu<input type="text" id="e-name" maxlength="80"></label>
         <label class="f" id="e-caption-label">Petit mot<textarea id="e-caption" maxlength="600"></textarea></label>
-        <label class="f">Heure <small>Pour une étape : décale toutes ses photos</small><input type="datetime-local" id="e-when"></label>
+        <label class="f"><span id="e-when-label">Heure de cette photo</span> <small id="e-when-hint">Change l'heure et la photo rejoint la bonne étape</small><input type="datetime-local" id="e-when"></label>
+        <label class="check" id="e-shift-row"><input type="checkbox" id="e-shift"> Décaler toute l'étape (toutes ses photos) au lieu de cette seule photo</label>
         <div class="grid2">
           <label class="f only-stop">Étiquette <small>Facultatif</small><input type="text" id="e-tag" maxlength="30" list="dl-tags" placeholder="Départ, Arrivée, Hôtel…"></label>
           <label class="f" id="e-mode-label">Arrivé ici en <select id="e-mode">

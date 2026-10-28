@@ -576,3 +576,4 @@ h1.appname{white-space:normal!important;overflow:visible!important;text-overflow
 .social-mini{display:inline-flex;gap:8px;font-size:.8rem;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
 #namesheet,#acct{z-index:2100}
 .lb-body:has(#lb-edit:not([hidden])) .social{display:none}
+.toast-btn{margin-left:8px;border:1px solid currentColor;background:none;color:inherit;border-radius:8px;padding:3px 10px;font-weight:700}
