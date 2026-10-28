@@ -127,3 +127,63 @@ test("déconnexion des visiteurs : l'accès disparaît", async () => {
   await assertFails(getDoc(doc(v.firestore(), "trips/malte-2026")));
   await assertFails(getDoc(doc(v.firestore(), "trips/malte-2026/photos/s1")));
 });
+
+test("éditeur par e-mail et mot de passe : seulement avec une adresse vérifiée", async () => {
+  const pw = ctx("p", { email: "compagne@example.com", email_verified: true, firebase: { sign_in_provider: "password" } });
+  await assertSucceeds(getDocs(collection(pw.firestore(), "trips")));
+  await assertSucceeds(setDoc(doc(pw.firestore(), "trips/malte-2026/stops/s4"), { lat: 1 }));
+  const nv = ctx("n", { email: "compagne@example.com", email_verified: false, firebase: { sign_in_provider: "password" } });
+  await assertFails(getDocs(collection(nv.firestore(), "trips")));
+  const other = ctx("o", { email: "inconnu@example.com", email_verified: true, firebase: { sign_in_provider: "password" } });
+  await assertFails(getDoc(doc(other.firestore(), "trips/malte-2026")));
+});
+
+test("profil : photo lisible et modifiable par son seul titulaire", async () => {
+  const o = ctx("owner", OWNER), db = o.firestore();
+  const { Bytes } = await import("firebase/firestore");
+  await assertSucceeds(setDoc(doc(db, "users/owner"), { photo: Bytes.fromUint8Array(new Uint8Array(1000)), updatedAt: serverTimestamp() }));
+  await assertSucceeds(getDoc(doc(db, "users/owner")));
+  await assertFails(setDoc(doc(db, "users/owner"), { photo: Bytes.fromUint8Array(new Uint8Array(160000)) }));  // trop lourde
+  await assertFails(setDoc(doc(db, "users/owner"), { photo: "x", admin: true }));
+  await assertFails(setDoc(doc(db, "users/autre"), { updatedAt: serverTimestamp() }));
+  await assertFails(getDoc(doc(visitor().firestore(), "users/owner")));
+  await assertFails(setDoc(doc(visitor("v9").firestore(), "users/v9"), { updatedAt: serverTimestamp() })); // visiteur anonyme
+  await assertSucceeds(deleteDoc(doc(db, "users/owner")));
+});
+
+test("réactions : membres et éditeurs, chacun son propre champ", async () => {
+  const v = visitor(); await assertSucceeds(join(v, "malte-2026", "MALTE-26"));
+  const db = v.firestore(), r = doc(db, "trips/malte-2026/reactions/s1");
+  await assertSucceeds(setDoc(r, { v1: "❤️|Mamie" }));
+  await assertSucceeds(getDoc(r));
+  const e = ctx("owner", OWNER);
+  await assertSucceeds(updateDoc(doc(e.firestore(), "trips/malte-2026/reactions/s1"), { owner: "👏|Quentin" }));
+  await assertFails(updateDoc(r, { owner: "😂|Mamie" }));            // pas le champ d'un autre
+  await assertFails(updateDoc(r, { v1: "x".repeat(81) }));
+  await assertSucceeds(updateDoc(r, { v1: "😮|Mamie" }));
+  const { deleteField } = await import("firebase/firestore");
+  await assertSucceeds(updateDoc(r, { v1: deleteField() }));
+  await assertFails(deleteDoc(r));
+  await assertFails(setDoc(doc(db, "trips/islande-2027/reactions/s1"), { v1: "❤️|Mamie" }));  // autre voyage
+  await assertFails(setDoc(doc(visitor("v2").firestore(), "trips/malte-2026/reactions/s2"), { v2: "❤️|X" })); // sans code
+  await assertFails(setDoc(doc(db, "trips/malte-2026/reactions/s3"), { v1: "❤️", v2: "❤️" }));
+});
+
+test("commentaires : créés par les membres, supprimés par l'auteur ou un éditeur", async () => {
+  const v = visitor(); await assertSucceeds(join(v, "malte-2026", "MALTE-26"));
+  const db = v.firestore();
+  const ok = { photoId: "s1", text: "Superbe !", name: "Mamie", uid: "v1", at: serverTimestamp() };
+  await assertSucceeds(setDoc(doc(db, "trips/malte-2026/comments/c1"), ok));
+  await assertSucceeds(getDocs(collection(db, "trips/malte-2026/comments")));
+  await assertFails(setDoc(doc(db, "trips/malte-2026/comments/c2"), { ...ok, uid: "autre" }));
+  await assertFails(setDoc(doc(db, "trips/malte-2026/comments/c3"), { ...ok, text: "" }));
+  await assertFails(setDoc(doc(db, "trips/malte-2026/comments/c4"), { ...ok, at: 5 }));
+  await assertFails(setDoc(doc(db, "trips/malte-2026/comments/c5"), { ...ok, admin: true }));
+  await assertFails(updateDoc(doc(db, "trips/malte-2026/comments/c1"), { text: "modifié" }));
+  await assertFails(setDoc(doc(db, "trips/islande-2027/comments/c1"), ok));
+  const v2 = visitor("v2"); await assertSucceeds(join(v2, "malte-2026", "MALTE-26", "v2"));
+  await assertFails(deleteDoc(doc(v2.firestore(), "trips/malte-2026/comments/c1")));
+  await assertSucceeds(setDoc(doc(v2.firestore(), "trips/malte-2026/comments/c6"), { ...ok, uid: "v2", name: "Papy" }));
+  await assertSucceeds(deleteDoc(doc(db, "trips/malte-2026/comments/c1")));
+  await assertSucceeds(deleteDoc(doc(ctx("owner", OWNER).firestore(), "trips/malte-2026/comments/c6")));
+});

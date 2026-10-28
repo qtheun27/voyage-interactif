@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs>
+  <filter id="ink" x="-10%" y="-10%" width="120%" height="120%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="big"/>
+    <feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="1" seed="3" result="fine"/>
+    <feDisplacementMap in="SourceGraphic" in2="big" scale="5" xChannelSelector="R" yChannelSelector="G" result="wob"/>
+    <feColorMatrix in="fine" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.5 1.42" result="speck"/>
+    <feColorMatrix in="big" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -2.6 2.2" result="press"/>
+    <feComposite in="speck" in2="press" operator="arithmetic" k1="1" result="holes"/>
+    <feComposite in="wob" in2="holes" operator="in"/>
+  </filter>
+  <filter id="paper"><feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="3" seed="2"/><feColorMatrix values="0 0 0 0 .42  0 0 0 0 .34  0 0 0 0 .2  0 0 0 .09 0"/></filter>
+</defs><rect width="512" height="512" fill="#f4e8cc"/><rect width="512" height="512" filter="url(#paper)"/><g filter="url(#ink)" transform="rotate(-9 175.0 97.0)" fill="#b8322a" stroke="#b8322a" opacity="0.85">
+  <rect x="-40" y="22" width="430" height="150" rx="12" fill="none" stroke-width="9"/>
+  <rect x="-26" y="36" width="402" height="122" rx="5" fill="none" stroke-width="3"/>
+  <text stroke="none" x="175.0" y="106.00000000000001" text-anchor="middle" font-family="Georgia, 'DejaVu Serif', serif" font-weight="700" font-size="57" letter-spacing="8">VOYAGE</text>
+  <text stroke="none" x="175.0" y="142.0" text-anchor="middle" font-family="Georgia, 'DejaVu Serif', serif" font-weight="700" font-size="20" letter-spacing="5">✦ BON VOYAGE ✦</text>
+</g><g filter="url(#ink)" transform="rotate(10 292 304)" fill="#1f5fa8" stroke="#1f5fa8">
+  <circle cx="292" cy="304" r="205" fill="none" stroke-width="15.4"/>
+  <circle cx="292" cy="304" r="164.0" fill="none" stroke-width="5.1"/>
+  <circle cx="292" cy="304" r="102.5" fill="none" stroke-width="5.1"/>
+  <path id="t292304" d="M158.8 304 a133.2 133.2 0 0 1 266.5 0" fill="none" stroke="none"/>
+  <path id="b292304" d="M140.3 304 a151.7 151.7 0 0 0 303.4 0" fill="none" stroke="none"/>
+  <text stroke="none" font-family="Georgia, 'DejaVu Serif', serif" font-weight="700" font-size="39.0" letter-spacing="6.1"><textPath href="#t292304" startOffset="50%" text-anchor="middle">MON CARNET</textPath></text>
+  <text stroke="none" font-family="Georgia, 'DejaVu Serif', serif" font-weight="700" font-size="26.7" letter-spacing="8.2"><textPath href="#b292304" startOffset="50%" text-anchor="middle">DE VOYAGES</textPath></text>
+  <text stroke="none" x="164.9" y="314.2" font-size="26.7" text-anchor="middle">★</text>
+  <text stroke="none" x="419.1" y="314.2" font-size="26.7" text-anchor="middle">★</text>
+  <g fill="none" stroke-width="6"><circle cx="292" cy="304" r="72"/>
+  <ellipse cx="292" cy="304" rx="32.4" ry="72"/><path d="M292 232V376"/>
+  <path d="M220 304H364"/><path d="M229.36 268.0H354.64M229.36 340.0H354.64"/></g>
+</g></svg>

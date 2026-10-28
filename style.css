@@ -1,4 +1,4 @@
-/* Voyage interactif : palette calcaire et turquoise, une couleur de barque luzzu par jour.
+/* Mon carnet de voyages : palette calcaire et turquoise, une couleur de barque luzzu par jour.
    Carte nautique illustrée en tête, carnet chronologique dessous ; côte à côte sur grand écran. */
 :root{
   --bg:#f2f6f7; --panel:#ffffff; --fg:#13262d; --muted:#5a6d74; --line:#d9e2e5;
@@ -511,3 +511,68 @@ body.dragmode{-webkit-user-select:none;user-select:none}
 .stop.drop > button[data-open]{outline:3px dashed var(--accent);outline-offset:2px;background:color-mix(in srgb,var(--accent) 8%,var(--panel))}
 .drag-ghost{position:fixed;z-index:3000;list-style:none;pointer-events:none;box-shadow:var(--shadow);border-radius:12px;opacity:.95;transition:none}
 .drag-ghost::before{display:none}
+
+/* ---------- En-tête : nom de l'appli, avatar du compte ---------- */
+.applogo{width:40px;height:40px;border-radius:10px;flex:none;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+h1.appname{white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
+.account{flex:none}
+.avatar{width:38px;height:38px;border-radius:50%;padding:0;border:2px solid var(--panel);box-shadow:0 0 0 1px var(--line);background:var(--sea);color:var(--fg);
+  display:grid;place-items:center;overflow:hidden;font-weight:700;font-size:.95rem;flex:none;cursor:pointer}
+.avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.avatar svg{width:22px;height:22px;color:var(--muted)}
+.avatar.big{width:64px;height:64px;font-size:1.5rem;cursor:default}
+.avatar:hover{box-shadow:0 0 0 2px var(--accent)}
+.avatar.big:hover{box-shadow:0 0 0 1px var(--line)}
+.ac-me{display:flex;align-items:center;gap:14px}
+.ac-me b{display:block;font-size:1.05rem}
+.ac-me small{color:var(--muted);word-break:break-all}
+.ac-actions{display:flex;flex-direction:column;gap:8px}
+.ac-actions .btn{justify-content:flex-start;padding:11px 14px}
+.ac-pw,.ac-login,.ac-guest{display:flex;flex-direction:column;gap:12px}
+.ac-login h4{margin:6px 0 0;font-size:1rem}
+.btn.google{padding:11px 14px}
+.btn.google svg{width:18px;height:18px}
+.or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:.85rem}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+.ac-login .sheet-actions{align-items:center}
+.ac-login .linkbtn{margin-right:auto}
+@media (max-width:640px){
+  header.top{flex-wrap:nowrap}
+  #screen-home header.top h1{font-size:1.25rem}
+  .applogo{width:34px;height:34px}
+}
+
+/* ---------- Couverture choisie parmi les photos ---------- */
+.row-btns{display:flex;gap:8px;flex-wrap:wrap}
+.cover-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:6px;max-height:320px;overflow-y:auto;padding:2px;margin-top:8px}
+.cover-grid button{aspect-ratio:1;border:0;padding:0;border-radius:8px;overflow:hidden;background:var(--line);position:relative}
+.cover-grid img{width:100%;height:100%;object-fit:cover;display:block}
+.cover-grid button[aria-pressed="true"]{outline:3px solid var(--accent);outline-offset:-3px}
+.cover-grid button:disabled{opacity:.5}
+
+/* ---------- Réactions et commentaires ---------- */
+.social{display:flex;flex-direction:column;gap:10px;margin-top:6px}
+.reacts{display:flex;gap:6px;flex-wrap:wrap}
+.reacts button{display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#eef3f4;
+  border-radius:999px;padding:5px 11px;font-size:1.05rem;line-height:1;font-variant-numeric:tabular-nums}
+.reacts button b{font-size:.82rem;font-weight:700;min-width:.6em}
+.reacts button[aria-pressed="true"]{background:rgba(255,106,92,.22);border-color:#ff6a5c}
+.reacts button:active{transform:scale(.94)}
+.who{color:#8ea2a8;font-size:.85rem}
+.who:empty{display:none}
+.comments{border-top:1px solid rgba(255,255,255,.12);padding-top:10px;display:flex;flex-direction:column;gap:8px}
+.comments h4{margin:0;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:#9fb3b9;font-weight:700}
+.comments ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.comments li{background:rgba(255,255,255,.06);border-radius:12px;padding:8px 11px;position:relative}
+.comments li .c-head{display:flex;gap:8px;align-items:baseline;font-size:.8rem;color:#9fb3b9}
+.comments li .c-head b{color:#eef3f4;font-size:.88rem}
+.comments li p{margin:2px 0 0;font-size:.97rem;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.comments li .c-del{position:absolute;right:6px;top:4px;border:0;background:none;color:#8ea2a8;font-size:.78rem;text-decoration:underline;padding:2px 4px}
+.comments .c-empty{color:#8ea2a8;font-size:.9rem;background:none;padding:0}
+.c-form{display:flex;gap:8px;align-items:flex-end}
+.c-form textarea{flex:1;min-height:42px;max-height:140px;resize:none;border-radius:12px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#eef3f4;padding:9px 12px;font:inherit}
+.c-form .btn{min-width:44px;height:42px;padding:0}
+.lb-body .c-form .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.social-mini{display:inline-flex;gap:8px;font-size:.8rem;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
+#namesheet,#acct{z-index:2100}
+.lb-body:has(#lb-edit:not([hidden])) .social{display:none}

@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Voyage interactif</title>
+<title>Mon carnet de voyages</title>
 <meta name="description" content="Carnets de voyage illustrés, suivis en direct par les proches.">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#10212a" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Voyage">
+<meta name="apple-mobile-web-app-title" content="Carnet">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -26,8 +26,9 @@
 <!-- ============ Accueil ============ -->
 <section class="screen" id="screen-home" hidden>
   <header class="top">
+    <img class="applogo" src="icons/icon.svg" alt="" width="40" height="40">
     <div class="brand">
-      <h1>Voyage interactif</h1>
+      <h1 class="appname">Mon carnet de voyages</h1>
       <div class="status" id="home-sub">Nos carnets de voyage, en direct</div>
     </div>
     <div class="account" id="home-account"></div>
@@ -57,7 +58,7 @@
 <section class="screen gate" id="screen-gate" hidden>
   <form class="gate-card" id="gate-form" novalidate>
     <svg class="gate-mark" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="27" fill="none" stroke="var(--sea-label)" stroke-width="1" stroke-dasharray="2 3"/><path d="M30 6 L36 30 L30 54 L24 30 Z" fill="var(--panel)" stroke="var(--sea-label)" stroke-width="1.2"/><path d="M30 6 L36 30 L24 30 Z" fill="var(--accent)"/><path d="M6 30 L30 26 L54 30 L30 34 Z" fill="var(--panel)" stroke="var(--sea-label)" stroke-width="1"/></svg>
-    <h1>Voyage interactif</h1>
+    <h1>Mon carnet de voyages</h1>
     <p class="muted">Ce carnet est privé. Entre le code du voyage pour le suivre.</p>
     <label class="f">Code du voyage
       <input type="text" id="gate-code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40" required>
@@ -93,6 +94,7 @@
         <span>Réglages</span>
       </a>
     </div>
+    <div class="account" id="trip-account"></div>
   </header>
   <div class="main">
     <div class="mapwrap" id="mapwrap">
@@ -133,6 +135,7 @@
       <h1>Réglages du voyage</h1>
       <div class="status" id="admin-sub"></div>
     </div>
+    <div class="account" id="admin-account"></div>
   </header>
   <main class="admin">
     <form class="panel" id="admin-form" novalidate>
@@ -151,8 +154,12 @@
       <div class="f">Couverture
         <div class="cover-row">
           <div class="cover-prev" id="a-cover-prev"></div>
-          <label class="btn">Choisir une photo<input type="file" id="a-cover" accept="image/*" class="visually-hidden"></label>
+          <div class="row-btns">
+            <button class="btn" type="button" id="a-cover-pick">Parmi les photos du voyage</button>
+            <label class="btn ghost">Depuis la galerie<input type="file" id="a-cover" accept="image/*" class="visually-hidden"></label>
+          </div>
         </div>
+        <div class="cover-grid" id="a-cover-grid" hidden></div>
       </div>
       <div class="msg" id="a-msg" hidden></div>
       <div class="sheet-actions"><button class="btn primary" type="submit" id="a-save">Enregistrer</button></div>
@@ -295,6 +302,60 @@
   </div>
 </div>
 
+
+<!-- ============ Mon compte ============ -->
+<div class="overlay" id="acct" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ac-title">
+    <div class="sheet-head">
+      <h3 id="ac-title">Mon compte</h3>
+      <button type="button" class="x" data-close="acct" aria-label="Fermer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="ac-me" id="ac-me"></div>
+    <div class="ac-actions" id="ac-signed">
+      <label class="btn">Changer ma photo<input type="file" id="ac-photo" accept="image/*" class="visually-hidden"></label>
+      <button class="btn ghost" type="button" id="ac-photo-del" hidden>Reprendre la photo Google</button>
+      <button class="btn" type="button" id="ac-pw-open">Changer mon mot de passe</button>
+      <button class="btn danger" type="button" data-action="signout">Se déconnecter</button>
+    </div>
+    <form class="ac-pw" id="ac-pw" novalidate hidden>
+      <label class="f" id="ac-pw-cur-l">Mot de passe actuel<input type="password" id="ac-pw-cur" autocomplete="current-password"></label>
+      <label class="f">Nouveau mot de passe <small>8 caractères au moins</small><input type="password" id="ac-pw-new" autocomplete="new-password" minlength="8"></label>
+      <label class="f">Encore une fois<input type="password" id="ac-pw-new2" autocomplete="new-password"></label>
+      <div class="sheet-actions"><button class="btn" type="button" id="ac-pw-cancel">Annuler</button><button class="btn primary" type="submit" id="ac-pw-save">Enregistrer</button></div>
+    </form>
+    <div class="ac-guest" id="ac-guest">
+      <label class="f">Ton prénom <small>Affiché à côté de tes réactions et commentaires</small><input type="text" id="ac-name" maxlength="40" autocomplete="given-name"></label>
+      <form class="ac-login" id="ac-login" novalidate>
+        <h4>Connexion éditeur</h4>
+        <button class="btn google" type="button" data-action="google-signin"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.6 12.2c0-.8-.1-1.5-.2-2.2H12v4.2h5.9a5 5 0 0 1-2.2 3.3v2.7h3.6c2.1-1.9 3.3-4.8 3.3-8z"/><path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.7l-3.6-2.7c-1 .7-2.2 1.1-3.7 1.1-2.9 0-5.3-1.9-6.2-4.5H2.1v2.8A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.8 14.2a6.6 6.6 0 0 1 0-4.3V7.1H2.1a11 11 0 0 0 0 9.9z"/><path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.6l3.2-3.2A11 11 0 0 0 2.1 7.1l3.7 2.8C6.7 7.3 9.1 5.4 12 5.4z"/></svg>Continuer avec Google</button>
+        <div class="or"><span>ou</span></div>
+        <label class="f">Adresse e-mail<input type="email" id="ac-email" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false"></label>
+        <label class="f">Mot de passe<input type="password" id="ac-pass" autocomplete="current-password"></label>
+        <div class="msg" id="ac-login-msg" hidden></div>
+        <div class="sheet-actions">
+          <button class="linkbtn" type="button" id="ac-forgot">Mot de passe oublié ?</button>
+          <button class="btn" type="button" id="ac-create">Créer mon compte</button>
+          <button class="btn primary" type="submit" id="ac-signin">Se connecter</button>
+        </div>
+      </form>
+    </div>
+    <div class="msg" id="ac-msg" hidden></div>
+  </div>
+</div>
+
+<!-- ============ Prénom (réactions, commentaires) ============ -->
+<div class="overlay" id="namesheet" hidden>
+  <form class="sheet" id="ns-form" role="dialog" aria-modal="true" aria-labelledby="ns-title" novalidate>
+    <div class="sheet-head">
+      <h3 id="ns-title">Comment t'appelles-tu ?</h3>
+      <button type="button" class="x" data-close="namesheet" aria-label="Fermer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <p class="muted" style="margin:0">Ton prénom apparaît à côté de tes réactions et commentaires, pour que les voyageurs sachent qui les suit.</p>
+    <label class="f">Prénom<input type="text" id="ns-name" maxlength="40" autocomplete="given-name" required></label>
+    <div class="sheet-actions"><button class="btn" type="button" data-close="namesheet">Annuler</button><button class="btn primary" type="submit">Continuer</button></div>
+  </form>
+</div>
+
 <!-- ============ Accueil du voyage (visiteurs) ============ -->
 <div class="hero" id="hero" hidden>
   <div class="hero-bg" id="hero-bg"></div>
@@ -369,6 +430,18 @@
       <p id="lb-cap"></p>
       <div class="coords" id="lb-coords"></div>
       <div class="byline" id="lb-by"></div>
+      <div class="social" id="lb-social">
+        <div class="reacts" id="lb-reacts" role="group" aria-label="Réagir à cette photo"></div>
+        <div class="who" id="lb-who"></div>
+        <section class="comments" id="lb-comments" aria-labelledby="lb-c-title">
+          <h4 id="lb-c-title">Commentaires</h4>
+          <ul id="lb-c-list"></ul>
+          <form class="c-form" id="lb-c-form" novalidate>
+            <textarea id="lb-c-text" maxlength="1000" rows="1" placeholder="Écrire un commentaire…" aria-label="Ton commentaire"></textarea>
+            <button class="btn primary" type="submit" id="lb-c-send" aria-label="Envoyer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l16-8-6 16-2-7z"/></svg></button>
+          </form>
+        </section>
+      </div>
       <div class="edit" id="lb-edit" hidden>
         <label class="f only-stop">Nom du lieu<input type="text" id="e-name" maxlength="80"></label>
         <label class="f" id="e-caption-label">Petit mot<textarea id="e-caption" maxlength="600"></textarea></label>

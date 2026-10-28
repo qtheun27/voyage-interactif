@@ -1,9 +1,10 @@
-/* Voyage interactif : plusieurs voyages, suivis sans compte avec un code d'accès ; photos ajoutées par les éditeurs. */
+/* Mon carnet de voyages : plusieurs voyages, suivis sans compte avec un code d'accès ; photos ajoutées par les éditeurs. */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInAnonymously, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut,
-  connectAuthEmulator, signInWithCredential }
+  connectAuthEmulator, signInWithCredential, EmailAuthProvider, linkWithCredential, reauthenticateWithCredential, reauthenticateWithPopup,
+  updatePassword, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import { getFirestore, doc, getDoc, getDocFromServer, getDocs, setDoc, collection, onSnapshot, writeBatch, serverTimestamp, getCountFromServer, connectFirestoreEmulator, Bytes }
+import { getFirestore, doc, getDoc, getDocFromServer, getDocs, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collection, onSnapshot, writeBatch, serverTimestamp, getCountFromServer, connectFirestoreEmulator, Bytes }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { firebaseConfig, OWNER_EMAIL, OWNER_NAME, emulators } from "./firebase-config.js";
 import { toLocalInput, fromLocalInput } from "./lib/time.js";
@@ -14,6 +15,7 @@ import { km, curve, fmtCoord, packPlace, reverseGeocode, searchPlaces, autoPlace
 import { buildJourney, estimatePosition, legField, MODES } from "./lib/journey.js";
 import { loadPack, ICONS } from "./packs/index.js";
 
+const APP = "Mon carnet de voyages";
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const NDAY = 6;
@@ -47,9 +49,11 @@ if (configured){
   }
 }
 let user = null, isEditor = false, editorEmails = [], S3CFG = null;
-const isGoogle = u => !!u && !u.isAnonymous && u.providerData.some(p => p.providerId === "google.com");
+// Un compte : Google, ou e-mail + mot de passe dont l'adresse est confirmée (les visiteurs sont anonymes).
+const isGoogle = u => !!u && !u.isAnonymous && (u.providerData.some(p => p.providerId === "google.com") || (u.emailVerified && u.providerData.some(p => p.providerId === "password")));
 async function refreshRole(){
   isEditor = false; editorEmails = [];
+  loadProfile();
   if (!isGoogle(user)) return;
   try {
     const s = await getDoc(doc(db, "config/editors"));
@@ -77,16 +81,24 @@ async function editorSignIn(){
     if (e?.code !== "auth/popup-closed-by-user") toast("La connexion Google a échoué. Vérifie que ce site est autorisé dans Firebase.");
     return;
   }
+  await afterSignIn("Ce compte Google");
+}
+/* Seuls les éditeurs ont un compte : les proches suivent un voyage avec son code, sans compte. */
+async function afterSignIn(what){
   await refreshRole();
   if (!isEditor){
-    toast("Ce compte Google n'est pas éditeur. Pour suivre un voyage, utilise son code.");
-    await signOut(auth);
+    toast(`${what} n'est pas éditeur. Pour suivre un voyage, utilise son code.`);
+    await signOut(auth); return false;
   }
+  $("acct").hidden = true; renderAccounts();
+  return true;
 }
 document.addEventListener("click", e => {
   const a = e.target.closest("[data-action]"); if (!a) return;
-  if (a.dataset.action === "editor-signin") editorSignIn();
-  if (a.dataset.action === "signout") signOut(auth).then(() => { location.hash = "#/"; });
+  if (a.dataset.action === "editor-signin") openAccount(true);
+  if (a.dataset.action === "google-signin") editorSignIn();
+  if (a.dataset.action === "account") openAccount();
+  if (a.dataset.action === "signout"){ $("acct").hidden = true; signOut(auth).then(() => { location.hash = "#/"; }); }
 });
 
 let toastTimer = null;
@@ -209,6 +221,7 @@ function show(id){
   $("boot").hidden = true;
   SCREENS.forEach(s => $(s).hidden = s !== id);
   $("fab").hidden = !(id === "screen-trip" && isEditor && T.trip);
+  renderAccounts();
 }
 function parseHash(){
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
@@ -230,10 +243,176 @@ window.addEventListener("hashchange", () => route(false));
 /* =================================================================== */
 /* Accueil                                                             */
 /* =================================================================== */
-function renderAccount(el){
-  if (isEditor) el.innerHTML = `<small title="${esc(user.email)}">${esc(user.email)}</small><button class="btn ghost" type="button" data-action="signout">Se déconnecter</button>`;
-  else el.innerHTML = `<button class="linkbtn" type="button" data-action="editor-signin">Je suis éditeur</button>`;
+/* ---------- Mon compte : avatar, photo, mot de passe, connexion ---------- */
+let myPhoto = null;
+const hasAccount = () => isGoogle(user);
+const hasPassword = () => !!user?.providerData.some(p => p.providerId === "password");
+function storedName(){ try { return localStorage.getItem("vi.name") || ""; } catch(_){ return ""; } }
+function myName(){
+  if (hasAccount()) return (user.displayName || "").trim() || String(user.email || "").split("@")[0];
+  return storedName();
 }
+const initials = n => String(n || "").trim().split(/[\s.@_-]+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
+const PERSON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>';
+function avatarInner(){
+  if (!hasAccount()) return storedName() ? esc(initials(storedName())) : PERSON;
+  const src = myPhoto || user.photoURL;
+  return src ? `<img src="${esc(src)}" alt="" referrerpolicy="no-referrer" onerror="this.replaceWith(document.createTextNode('${esc(initials(myName()))}'))">` : esc(initials(myName()));
+}
+function renderAccounts(){
+  const label = hasAccount() ? `Mon compte (${myName()})` : "Mon compte, connexion éditeur";
+  ["home-account", "trip-account", "admin-account"].forEach(id => {
+    $(id).innerHTML = `<button class="avatar" type="button" data-action="account" aria-label="${esc(label)}" title="${esc(label)}">${avatarInner()}</button>`;
+  });
+}
+let profileUid = null;
+async function loadProfile(){
+  const uid = hasAccount() ? user.uid : null;
+  if (uid === profileUid) return;
+  profileUid = uid; myPhoto = null;
+  if (!uid) return renderAccounts();
+  try { const s = await getDoc(doc(db, "users", uid)); if (profileUid === uid && s.exists()) myPhoto = imgUrl("me:" + uid, s.data().photo); } catch(_){}
+  renderAccounts();
+}
+function openAccount(login){
+  ["ac-msg", "ac-login-msg"].forEach(m => setMsg(m, ""));
+  const acc = hasAccount();
+  $("ac-title").textContent = acc ? "Mon compte" : login ? "Connexion éditeur" : "Mon compte";
+  $("ac-signed").hidden = !acc; $("ac-guest").hidden = acc; $("ac-pw").hidden = true;
+  $("ac-me").hidden = !acc && login;
+  $("ac-me").innerHTML = `<span class="avatar big">${avatarInner()}</span><span>${acc
+    ? `<b>${esc(myName())}</b><small>${esc(user.email || "")}</small>${isEditor ? '<small style="display:block">Éditeur</small>' : ""}`
+    : `<b>${esc(storedName() || "Visiteur")}</b><small>Tu suis les voyages avec leur code, sans compte.</small>`}</span>`;
+  $("ac-photo-del").hidden = !(acc && myPhoto);
+  $("ac-photo-del").textContent = user?.photoURL ? "Reprendre la photo Google" : "Retirer ma photo";
+  $("ac-pw-open").textContent = hasPassword() ? "Changer mon mot de passe" : "Créer un mot de passe";
+  $("ac-name").value = storedName();
+  $("ac-name").closest(".f").hidden = !!login;
+  $("acct").hidden = false;
+  if (login) setTimeout(() => $("ac-email").focus(), 50);
+}
+document.querySelectorAll('[data-close="acct"]').forEach(b => b.onclick = () => $("acct").hidden = true);
+$("ac-name").addEventListener("change", () => { try { localStorage.setItem("vi.name", $("ac-name").value.trim().slice(0, 40)); } catch(_){} renderAccounts(); });
+
+/* Photo de profil choisie dans la galerie : carrée, 256 px, rangée dans users/{uid}. */
+$("ac-photo").addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f || !hasAccount()) return;
+  setMsg("ac-msg", "Enregistrement de la photo…");
+  try {
+    const im = await decodeImage(f), side = Math.min(im.w, im.h);
+    const c = document.createElement("canvas"); c.width = c.height = 256;
+    try { c.getContext("2d").drawImage(im.src, (im.w - side) / 2, (im.h - side) / 2, side, side, 0, 0, 256, 256); } finally { im.done(); }
+    const b = await new Promise(r => c.toBlob(r, "image/jpeg", .85)); if (!b) throw new Error("format");
+    const bytes = await toBytes(b);
+    await setDoc(doc(db, "users", user.uid), { photo: bytes, updatedAt: serverTimestamp() });
+    myPhoto = imgUrl("me:" + user.uid, bytes); renderAccounts(); openAccount();
+    setMsg("ac-msg", "Photo de profil changée.", "ok");
+  } catch(err){ setMsg("ac-msg", err?.message === "format" ? "Cette image n'est pas lisible ici." : "La photo n'a pas pu être enregistrée. Réessaie.", "err"); }
+});
+$("ac-photo-del").onclick = async () => {
+  try { await deleteDoc(doc(db, "users", user.uid)); myPhoto = null; renderAccounts(); openAccount(); setMsg("ac-msg", user.photoURL ? "Photo Google reprise." : "Photo retirée.", "ok"); }
+  catch(_){ setMsg("ac-msg", "Impossible pour l'instant. Réessaie.", "err"); }
+};
+
+/* Mot de passe : le changer, ou en créer un pour un compte Google (connexion possible ensuite par e-mail). */
+$("ac-pw-open").onclick = () => {
+  $("ac-pw").reset(); $("ac-pw").hidden = false; $("ac-signed").hidden = true; setMsg("ac-msg", "");
+  $("ac-pw-cur-l").hidden = !hasPassword();
+  setTimeout(() => (hasPassword() ? $("ac-pw-cur") : $("ac-pw-new")).focus(), 50);
+};
+$("ac-pw-cancel").onclick = () => { $("ac-pw").hidden = true; $("ac-signed").hidden = false; setMsg("ac-msg", ""); };
+const authErr = e => ({
+  "auth/wrong-password": "Mot de passe incorrect.", "auth/invalid-credential": "E-mail ou mot de passe incorrect.", "auth/invalid-login-credentials": "E-mail ou mot de passe incorrect.",
+  "auth/user-not-found": "E-mail ou mot de passe incorrect.", "auth/weak-password": "Mot de passe trop faible : 8 caractères au moins.",
+  "auth/invalid-email": "Cette adresse e-mail n'est pas valide.", "auth/too-many-requests": "Trop d'essais : patiente quelques minutes.",
+  "auth/email-already-in-use": "Cette adresse a déjà un compte. Connecte-toi (avec Google si c'est une adresse Gmail), puis crée un mot de passe dans « Mon compte ».",
+  "auth/network-request-failed": "Pas de connexion internet.", "auth/popup-closed-by-user": "Connexion Google annulée.",
+  "auth/provider-already-linked": "Ce compte a déjà un mot de passe.", "auth/operation-not-allowed": "La connexion par e-mail n'est pas activée dans Firebase."
+}[e?.code] || "Ça n'a pas marché. Réessaie.");
+$("ac-pw").addEventListener("submit", async e => {
+  e.preventDefault();
+  const cur = $("ac-pw-cur").value, nw = $("ac-pw-new").value;
+  if (nw.length < 8) return setMsg("ac-msg", "Le nouveau mot de passe doit faire 8 caractères au moins.", "err");
+  if (nw !== $("ac-pw-new2").value) return setMsg("ac-msg", "Les deux mots de passe ne sont pas identiques.", "err");
+  $("ac-pw-save").disabled = true; setMsg("ac-msg", "Enregistrement…");
+  try {
+    if (hasPassword()){
+      await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, cur));
+      await updatePassword(user, nw);
+    } else {
+      // Compte Google : on lui ajoute un mot de passe (même adresse, même compte).
+      const add = async () => {
+        try { await linkWithCredential(user, EmailAuthProvider.credential(user.email, nw)); }
+        catch(err){ if (err?.code === "auth/email-already-in-use") await updatePassword(user, nw); else throw err; }
+      };
+      try { await add(); }
+      catch(err){
+        if (err?.code !== "auth/requires-recent-login") throw err;
+        await reauthenticateWithPopup(user, new GoogleAuthProvider());
+        await add();
+      }
+      await user.reload();
+    }
+    $("ac-pw").hidden = true; $("ac-signed").hidden = false;
+    $("ac-pw-open").textContent = "Changer mon mot de passe";
+    setMsg("ac-msg", `Mot de passe enregistré. Tu peux aussi te connecter avec ${user.email} et ce mot de passe.`, "ok");
+  } catch(err){ setMsg("ac-msg", authErr(err), "err"); }
+  $("ac-pw-save").disabled = false;
+});
+
+/* Connexion par e-mail et mot de passe (éditeurs). */
+const loginFields = () => ({ email: $("ac-email").value.trim(), pass: $("ac-pass").value });
+$("ac-login").addEventListener("submit", async e => {
+  e.preventDefault();
+  const { email, pass } = loginFields();
+  if (!email || !pass) return setMsg("ac-login-msg", "Indique ton e-mail et ton mot de passe.", "err");
+  $("ac-signin").disabled = true; setMsg("ac-login-msg", "Connexion…");
+  try {
+    const c = await signInWithEmailAndPassword(auth, email, pass);
+    if (!c.user.emailVerified){
+      await sendEmailVerification(c.user).catch(() => {});
+      await signOut(auth);
+      setMsg("ac-login-msg", `Adresse pas encore confirmée : ouvre le lien qu'on vient d'envoyer à ${email}, puis reconnecte-toi.`, "err");
+    } else if (await afterSignIn("Ce compte")) { $("ac-login").reset(); }
+    else setMsg("ac-login-msg", "Ce compte n'est pas éditeur. Pour suivre un voyage, utilise son lien et son code.", "err");
+  } catch(err){ setMsg("ac-login-msg", authErr(err), "err"); }
+  $("ac-signin").disabled = false;
+});
+$("ac-create").onclick = async () => {
+  const { email, pass } = loginFields();
+  if (!email) return setMsg("ac-login-msg", "Indique ton adresse e-mail.", "err");
+  if (pass.length < 8) return setMsg("ac-login-msg", "Choisis un mot de passe de 8 caractères au moins.", "err");
+  $("ac-create").disabled = true; setMsg("ac-login-msg", "Création du compte…");
+  try {
+    const c = await createUserWithEmailAndPassword(auth, email, pass);
+    await sendEmailVerification(c.user);
+    await signOut(auth);
+    setMsg("ac-login-msg", `Compte créé. Ouvre le lien envoyé à ${email} pour confirmer ton adresse, puis connecte-toi. Seules les adresses ajoutées par ${OWNER_NAME} dans les éditeurs peuvent publier.`, "ok");
+  } catch(err){ setMsg("ac-login-msg", authErr(err), "err"); }
+  $("ac-create").disabled = false;
+};
+$("ac-forgot").onclick = async () => {
+  const { email } = loginFields();
+  if (!email) return setMsg("ac-login-msg", "Indique d'abord ton adresse e-mail.", "err");
+  try { await sendPasswordResetEmail(auth, email); setMsg("ac-login-msg", `Si un compte existe pour ${email}, un e-mail pour choisir un nouveau mot de passe vient de partir.`, "ok"); }
+  catch(err){ setMsg("ac-login-msg", authErr(err), "err"); }
+};
+
+/* Prénom des visiteurs, demandé une fois pour les réactions et les commentaires. */
+let nameWait = null;
+function askName(){
+  const n = myName(); if (n) return Promise.resolve(n);
+  $("ns-name").value = ""; $("namesheet").hidden = false; setTimeout(() => $("ns-name").focus(), 50);
+  return new Promise(r => nameWait = r);
+}
+function closeName(v){ $("namesheet").hidden = true; const r = nameWait; nameWait = null; r?.(v || ""); }
+document.querySelectorAll('[data-close="namesheet"]').forEach(b => b.onclick = () => closeName(""));
+$("ns-form").addEventListener("submit", e => {
+  e.preventDefault();
+  const v = $("ns-name").value.trim().slice(0, 40); if (!v) return $("ns-name").focus();
+  try { localStorage.setItem("vi.name", v); } catch(_){}
+  renderAccounts(); closeName(v);
+});
 function tripCard(t, count){
   const status = t.status === "terminé" ? '<span class="pill done">Terminé</span>' : t.status ? '<span class="pill live">En cours</span>' : "";
   const meta = [fmtDates(t), count != null ? `${count} photo${count>1?"s":""}` : ""].filter(Boolean).join(" · ");
@@ -243,9 +422,8 @@ function tripCard(t, count){
 }
 const coverSrc = t => imgUrl("cover:" + t.id, t.cover);
 async function renderHome(seq){
-  document.title = "Voyage interactif";
+  document.title = APP;
   show("screen-home");
-  renderAccount($("home-account"));
   $("home-editor-actions").hidden = !isEditor;
   $("join-form").hidden = isEditor;
   const el = $("home-cards");
@@ -349,7 +527,7 @@ $("nt-form").addEventListener("submit", async e => {
 /* =================================================================== */
 let gateTrip = null;
 function showGate(id, msg){
-  gateTrip = id; document.title = "Voyage interactif";
+  gateTrip = id; document.title = APP;
   show("screen-gate"); setMsg("gate-msg", msg || "", msg ? "err" : null);
   $("gate-code").value = ""; setTimeout(() => $("gate-code").focus(), 50);
 }
@@ -380,7 +558,7 @@ $("gate-form").addEventListener("submit", async e => {
 /* =================================================================== */
 const T = { id:null, trip:null, tz:"UTC", F:null, pack:null, land:null, map:null, layers:null, streets:null, streetsOn:false,
   home:null, overview:false, view:"carnet", unsubs:[], photos:[], J:null, entries:[], flat:[], filterDay:null, active:null,
-  loaded:false, autoNames:{}, mine:new Set() };
+  loaded:false, autoNames:{}, mine:new Set(), reacts:new Map(), comments:[] };
 
 function makeFmts(tz){
   return {
@@ -398,7 +576,7 @@ function closeTrip(){
   if (T.map){ T.map.remove(); T.map = null; }
   ["lb","add","place","hero","legsheet"].forEach(id => $(id).hidden = true);
   Object.assign(T, { id:null, trip:null, photos:[], J:null, entries:[], flat:[], filterDay:null, active:null, loaded:false,
-    autoNames:{}, streetsOn:false, overview:false, mine:new Set() });
+    autoNames:{}, streetsOn:false, overview:false, mine:new Set(), reacts:new Map(), comments:[] });
 }
 
 async function openTrip(id, seq, force){
@@ -452,6 +630,23 @@ async function openTrip(id, seq, force){
     T.loaded = true; render(false);
     if (err?.code === "permission-denied") revoked(id);
   }));
+  // Réactions et commentaires, en direct.
+  T.unsubs.push(onSnapshot(collection(db, `trips/${id}/reactions`), snap => {
+    T.reacts = new Map(snap.docs.map(d => [d.id, d.data()]));
+    socialChanged();
+  }, () => {}));
+  let firstC = true;
+  T.unsubs.push(onSnapshot(collection(db, `trips/${id}/comments`), snap => {
+    const me = auth.currentUser?.uid;
+    const fresh = firstC ? [] : snap.docChanges().filter(c => c.type === "added" && c.doc.data().uid !== me).map(c => c.doc.data());
+    firstC = false;
+    T.comments = snap.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b) => (a.at?.toMillis?.() ?? Infinity) - (b.at?.toMillis?.() ?? Infinity));
+    socialChanged();
+    if (fresh.length){
+      const c = fresh[fresh.length-1], e = T.entries.find(x => x.items.some(it => it.id === c.photoId));
+      toast(`💬 ${c.name} : « ${c.text.length > 60 ? c.text.slice(0, 58) + "…" : c.text} »`, e ? () => openEntry(e.id, true) : null);
+    }
+  }, () => {}));
   // Un écouteur déjà ouvert n'est pas coupé quand l'accès est retiré : on revérifie auprès du serveur.
   if (!isEditor){
     const check = () => { if (T.id === id && document.visibilityState === "visible" && auth.currentUser)
@@ -472,7 +667,7 @@ function setTrip(t){
   const tz = t.timezone && tzValid(t.timezone) ? t.timezone : (tzForCountry(t.country) || "UTC");
   if (tz !== T.tz || !T.F){ T.tz = tz; T.F = makeFmts(tz); }
   $("trip-title").textContent = t.title || "Voyage";
-  document.title = `${t.title || "Voyage"} · Voyage interactif`;
+  document.title = `${t.title || "Voyage"} · ${APP}`;
   $("btn-admin").hidden = !isEditor; $("btn-admin").href = `#/v/${encodeURIComponent(T.id)}/admin`;
   $("fab").hidden = !isEditor;
 }
@@ -668,7 +863,7 @@ function stopRow(g){
       <span class="thumbstack">${ph.length ? `<img src="${esc(g.cover)}" alt="" loading="lazy">${second?`<img src="${esc(second.thumbUrl)}" alt="" loading="lazy">`:""}${ph.length>1?`<b>${ph.length}</b>`:""}${g.items.some(x => x.video) ? '<i class="vmark"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></i>' : ""}` : `<span class="ph">${pinSvg}</span>`}</span>
       <span class="txt"><span class="when">${esc(t1)}${t2!==t1?` – ${esc(t2)}`:""}${g.tag ? `<span class="flag">${esc(g.tag)}</span>` : ""}</span>
       <span class="place">${esc(g.place || "Étape")}${g.approx?'<span class="tag">position estimée</span>':""}</span>
-      ${g.caption ? `<span class="cap">${esc(g.caption)}</span>` : ""}</span>
+      ${g.caption ? `<span class="cap">${esc(g.caption)}</span>` : ""}${socialMini(g)}</span>
     </button></li>`;
 }
 const PEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>';
@@ -823,7 +1018,84 @@ function drawLb(){
   $("lb-prev").disabled = i <= 0; $("lb-next").disabled = i < 0 || i >= ents.length-1;
   $("lb-prev").dataset.id = ents[i-1]?.id || ""; $("lb-next").dataset.id = ents[i+1]?.id || "";
   $("lb-editbtn").hidden = !isEditor;
+  drawSocial();
 }
+/* ---------- Réactions sur les photos, commentaires sur les étapes ---------- */
+const EMOJIS = ["❤️", "😍", "😂", "😮", "👏"];
+const splitReact = v => { const i = String(v).indexOf("|"); return i < 0 ? [String(v), ""] : [v.slice(0, i), v.slice(i + 1)]; };
+function reactsOf(photoId){ return Object.entries(T.reacts.get(photoId) || {}).map(([uid, v]) => { const [emoji, name] = splitReact(v); return {uid, emoji, name}; }); }
+function commentsOf(e){ const ids = new Set(e.items.map(x => x.id)); return T.comments.filter(c => ids.has(c.photoId)); }
+function socialMini(e){
+  const r = e.items.reduce((n, x) => n + reactsOf(x.id).length, 0), c = commentsOf(e).length;
+  return r || c ? `<span class="social-mini">${r ? `<span>❤️ ${r}</span>` : ""}${c ? `<span>💬 ${c}</span>` : ""}</span>` : "";
+}
+let socialTimer = null;
+function socialChanged(){
+  if (!$("lb").hidden) drawSocial();
+  clearTimeout(socialTimer);
+  socialTimer = setTimeout(() => { if (T.trip && T.J && T.view === "carnet" && !dragging()) renderLog(); }, 300);
+}
+const dragging = () => document.body.classList.contains("dragmode");
+const fmtAgo = ts => {
+  if (!ts?.toMillis) return "à l'instant";
+  const m = (Date.now() - ts.toMillis()) / 60000;
+  if (m < 1) return "à l'instant";
+  if (m < 60) return `il y a ${Math.round(m)} min`;
+  if (m < 60 * 20) return `il y a ${Math.round(m / 60)} h`;
+  return T.F.full.format(ts.toDate());
+};
+function drawSocial(){
+  const f = lbCur(); if (!f) return;
+  const e = f.e, it = e.items[f.i], me = auth.currentUser?.uid;
+  // Réactions : une par personne et par photo ; toucher la même l'enlève.
+  const rs = it?.hasPhoto ? reactsOf(it.id) : [];
+  const mine = rs.find(r => r.uid === me)?.emoji;
+  $("lb-reacts").hidden = !it?.hasPhoto;
+  $("lb-reacts").innerHTML = EMOJIS.map(em => { const n = rs.filter(r => r.emoji === em).length;
+    return `<button type="button" data-react="${em}" aria-pressed="${mine === em}" aria-label="Réagir ${em}${n ? `, ${n}` : ""}">${em}${n ? `<b>${n}</b>` : ""}</button>`; }).join("");
+  const names = rs.map(r => `${r.uid === me ? "Toi" : r.name || "Quelqu'un"} ${r.emoji}`);
+  $("lb-who").textContent = names.length > 6 ? `${names.slice(0, 5).join(", ")} et ${names.length - 5} autres` : names.join(", ");
+  // Commentaires : sur l'étape (ou le trajet) entière, quelle que soit la photo affichée.
+  const cs = commentsOf(e);
+  $("lb-comments").hidden = !e.items.length;
+  $("lb-c-title").textContent = `Commentaires sur ${e.kind === "leg" ? "ce trajet" : "cette étape"}${cs.length ? ` (${cs.length})` : ""}`;
+  $("lb-c-list").innerHTML = cs.length ? cs.map(c => `<li><div class="c-head"><b>${esc(c.uid === me ? "Toi" : c.name)}</b><span>${esc(fmtAgo(c.at))}</span></div><p>${esc(c.text)}</p>${c.uid === me || isEditor ? `<button type="button" class="c-del" data-cdel="${esc(c.id)}">Supprimer</button>` : ""}</li>`).join("")
+    : `<li class="c-empty">Pas encore de commentaire. Un petit mot pour les voyageurs ?</li>`;
+}
+$("lb-reacts").addEventListener("click", async e => {
+  const b = e.target.closest("[data-react]"); if (!b) return;
+  const f = lbCur(), it = f?.e.items[f.i]; if (!it) return;
+  const name = await askName(); if (!name || !auth.currentUser) return;
+  const uid = auth.currentUser.uid, emoji = b.dataset.react, tripId = T.id;
+  const cur = T.reacts.get(it.id) || {}, same = cur[uid] && splitReact(cur[uid])[0] === emoji;
+  const ref = doc(db, `trips/${tripId}/reactions/${it.id}`);
+  // Affichage immédiat, corrigé par l'écouteur.
+  const next = {...cur}; if (same) delete next[uid]; else next[uid] = `${emoji}|${name}`;
+  T.reacts.set(it.id, next); drawSocial();
+  try {
+    if (same) await updateDoc(ref, {[uid]: deleteField()});
+    else await setDoc(ref, {[uid]: `${emoji}|${name}`.slice(0, 80)}, {merge:true});
+  } catch(_){ T.reacts.set(it.id, cur); drawSocial(); toast("Ta réaction n'a pas pu être enregistrée."); }
+});
+const growText = () => { const t = $("lb-c-text"); t.style.height = "auto"; t.style.height = Math.min(140, t.scrollHeight + 2) + "px"; };
+$("lb-c-text").addEventListener("input", growText);
+$("lb-c-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = lbCur(); if (!f?.e.items.length) return;
+  const text = $("lb-c-text").value.trim().slice(0, 1000); if (!text) return;
+  const name = await askName(); if (!name || !auth.currentUser) return;
+  $("lb-c-send").disabled = true;
+  try {
+    await addDoc(collection(db, `trips/${T.id}/comments`), { photoId: f.e.items[0].id, text, name: name.slice(0, 40), uid: auth.currentUser.uid, at: serverTimestamp() });
+    $("lb-c-text").value = ""; growText();
+  } catch(_){ toast("Ton commentaire n'a pas pu être envoyé. Vérifie la connexion."); }
+  $("lb-c-send").disabled = false;
+});
+$("lb-c-text").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing && matchMedia("(pointer:fine)").matches){ e.preventDefault(); $("lb-c-form").requestSubmit(); } });
+$("lb-c-list").addEventListener("click", async e => {
+  const b = e.target.closest("[data-cdel]"); if (!b || !confirm("Supprimer ce commentaire ?")) return;
+  try { await deleteDoc(doc(db, `trips/${T.id}/comments/${b.dataset.cdel}`)); } catch(_){ toast("Suppression impossible."); }
+});
 function closeLb(){ $("lb").hidden = true; $("lb-img").innerHTML = ""; document.body.classList.remove("noscroll"); T.active = null; if (T.trip){ renderLog(); renderMap(false); } }
 $("lb-close").onclick = closeLb;
 $("lb").addEventListener("click", e => { if (e.target === $("lb")) closeLb(); });
@@ -858,7 +1130,10 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape" && !$("place").hidden){ $("place").hidden = true; return; }
   if (e.key === "Escape" && !$("legsheet").hidden){ $("legsheet").hidden = true; return; }
   if (e.key === "Escape" && !$("newtrip").hidden){ $("newtrip").hidden = true; return; }
+  if (e.key === "Escape" && !$("namesheet").hidden){ closeName(""); return; }
+  if (e.key === "Escape" && !$("acct").hidden){ $("acct").hidden = true; return; }
   if ($("lb").hidden || !$("lb-edit").hidden) return;
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
   if (e.key === "Escape") closeLb();
   if (e.key === "ArrowLeft") stepLb(-1);
   if (e.key === "ArrowRight") stepLb(1);
@@ -1342,6 +1617,8 @@ $("add-form").addEventListener("submit", async e => {
   let lock = null; try { lock = await navigator.wakeLock?.request("screen"); } catch(_){}
   let done = 0, failed = 0, fatal = null;
   const vids = new Map();
+  // Pas encore de couverture : la première photo envoyée la devient (modifiable dans les réglages).
+  let wantCover = !T.trip?.cover;
   const tick = () => {
     const left = todo.length - done - failed, per = (Date.now() - t0) / Math.max(1, done);
     const partial = [...vids.values()].reduce((a, b) => a + b, 0);
@@ -1375,8 +1652,11 @@ $("add-form").addEventListener("submit", async e => {
       const im = p.video ? await decodeVideoFrame(p.file) : await decodeImage(p.file);
       // Photo en grand : 2560 px sur Backblaze quand il est branché (qualité), sinon 1600 px dans Firestore.
       const hd = S3CFG && !p.video;
-      let big, small;
-      try { big = hd ? await toJpeg(im, 2560, .88) : await jpegUnder(im, 1600, 950000); small = await jpegUnder(im, 400, 60000, .78); } finally { im.done(); }
+      let big, small, cov = null;
+      try {
+        big = hd ? await toJpeg(im, 2560, .88) : await jpegUnder(im, 1600, 950000); small = await jpegUnder(im, 400, 60000, .78);
+        if (wantCover && !p.video){ wantCover = false; cov = await jpegUnder(im, 1000, 200000, .8); }
+      } finally { im.done(); }
       let photo = null;
       if (hd){
         const rnd = [...crypto.getRandomValues(new Uint8Array(12))].map(x => x.toString(16).padStart(2, "0")).join("");
@@ -1408,6 +1688,7 @@ $("add-form").addEventListener("submit", async e => {
       b.set(doc(db, `trips/${tripId}/stops/${id}`), docData);
       T.mine.add(id);
       await b.commit();
+      if (cov) setDoc(doc(db, "trips", tripId), { cover: await toBytes(cov), coverStop: id }, {merge:true}).catch(() => {});
       p.sent = true; done++;
     } catch(err){
       failed++;
@@ -1653,10 +1934,11 @@ $("st-media").addEventListener("touchend", e => {
 /* =================================================================== */
 /* Réglages du voyage                                                  */
 /* =================================================================== */
-let A = { id:null, trip:null, codes:[], coverFile:null };
+let A = { id:null, trip:null, codes:[], coverFile:null, coverStop:null, stops:null };
 async function renderAdmin(id, seq){
   if (!isEditor){ location.hash = `#/v/${encodeURIComponent(id)}`; return; }
-  A = { id, trip:null, codes:[], coverFile:null };
+  A = { id, trip:null, codes:[], coverFile:null, coverStop:null, stops:null };
+  $("a-cover-grid").hidden = true; $("a-cover-grid").innerHTML = "";
   $("admin-back").href = `#/v/${encodeURIComponent(id)}`;
   ["a-msg","a-code-msg","a-members-msg","a-editors-msg"].forEach(m => setMsg(m, ""));
   let s;
@@ -1693,9 +1975,42 @@ async function loadMembers(){
   catch(_){ $("a-members").textContent = "Nombre de visiteurs indisponible."; }
 }
 $("a-country").addEventListener("change", () => $("a-country").value = $("a-country").value.toUpperCase());
+/* Couverture : une photo du voyage (l'image en grand est reprise, pas la miniature). */
+$("a-cover-pick").onclick = async () => {
+  const g = $("a-cover-grid");
+  if (!g.hidden){ g.hidden = true; return; }
+  g.hidden = false; g.innerHTML = `<div class="muted">Chargement des photos…</div>`;
+  if (!A.stops){
+    const id = A.id;
+    try {
+      const l = T.id === id && T.loaded ? T.photos : (await getDocs(collection(db, `trips/${id}/stops`))).docs.map(d => ({id:d.id, ...d.data(), thumbUrl: imgUrl("thumb:" + d.id, d.data().thumb)}));
+      if (A.id !== id) return;
+      A.stops = l.filter(x => x.thumbUrl).sort((a,b) => a.at - b.at);
+    } catch(_){ g.innerHTML = `<div class="muted">Impossible de lire les photos.</div>`; return; }
+  }
+  const cur = A.coverStop || A.trip?.coverStop;
+  g.innerHTML = A.stops.length ? A.stops.map(x => `<button type="button" data-cover="${esc(x.id)}" aria-pressed="${x.id === cur}" aria-label="${esc(x.place || "Photo")}"><img src="${esc(x.thumbUrl)}" alt="" loading="lazy"></button>`).join("")
+    : `<div class="muted">Pas encore de photo dans ce voyage.</div>`;
+};
+$("a-cover-grid").addEventListener("click", e => {
+  const b = e.target.closest("[data-cover]"); if (!b) return;
+  A.coverStop = b.dataset.cover; A.coverFile = null;
+  $("a-cover-grid").querySelectorAll("[data-cover]").forEach(x => x.setAttribute("aria-pressed", x === b));
+  $("a-cover-prev").innerHTML = `<img src="${esc(b.querySelector("img").src)}" alt="">`;
+  setMsg("a-msg", "Nouvelle couverture prête : appuie sur Enregistrer.");
+});
+async function coverFromStop(tripId, s){
+  let blob = null;
+  if (s.photoUrl && !s.video){ try { const r = await fetch(s.photoUrl); if (r.ok) blob = await r.blob(); } catch(_){} }
+  if (!blob){ try { const d = await getDoc(doc(db, `trips/${tripId}/photos/${s.id}`)); if (d.exists()) blob = new Blob([d.data().data.toUint8Array()], {type:"image/jpeg"}); } catch(_){} }
+  if (!blob && s.thumb) blob = new Blob([s.thumb.toUint8Array()], {type:"image/jpeg"});
+  if (!blob) throw new Error("format");
+  const im = await decodeImage(blob);
+  try { return await jpegUnder(im, 1000, 200000, .8); } finally { im.done(); }
+}
 $("a-cover").addEventListener("change", e => {
   const f = e.target.files[0]; if (!f) return;
-  A.coverFile = f; $("a-cover-prev").innerHTML = `<img src="${URL.createObjectURL(f)}" alt="">`;
+  A.coverFile = f; A.coverStop = null; $("a-cover-prev").innerHTML = `<img src="${URL.createObjectURL(f)}" alt="">`;
   setMsg("a-msg", "Nouvelle couverture prête : appuie sur Enregistrer.");
 });
 $("admin-form").addEventListener("submit", async e => {
@@ -1711,8 +2026,12 @@ $("admin-form").addEventListener("submit", async e => {
     if (A.coverFile){
       const im = await decodeImage(A.coverFile);
       let b; try { b = await jpegUnder(im, 1000, 200000, .8); } finally { im.done(); }
-      u.cover = await toBytes(b);
+      u.cover = await toBytes(b); u.coverStop = "";
       A.coverFile = null;
+    } else if (A.coverStop){
+      const s = A.stops.find(x => x.id === A.coverStop);
+      u.cover = await toBytes(await coverFromStop(A.id, s)); u.coverStop = s.id;
+      A.coverStop = null; $("a-cover-grid").hidden = true;
     }
     await setDoc(doc(db, "trips", A.id), u, {merge:true});
     Object.assign(A.trip, u);
@@ -1764,7 +2083,7 @@ $("v-test").onclick = async () => {
   const cfg = videoCfgFromForm();
   if (!cfg.endpoint || !cfg.bucket || !cfg.keyId || !cfg.appKey || !cfg.publicBase) return setMsg("v-msg", "Remplis tous les champs.", "err");
   setMsg("v-msg", "Test en cours…");
-  const key = `voyages/_test/${Date.now()}.txt`, body = new Blob(["Voyage interactif : test"], {type: "text/plain"});
+  const key = `voyages/_test/${Date.now()}.txt`, body = new Blob(["Mon carnet de voyages : test"], {type: "text/plain"});
   try { await putFile(cfg, key, body, { contentType: "text/plain" }); }
   catch(e){ return setMsg("v-msg", e.status === 403 ? "Envoi refusé : vérifie keyID, applicationKey et le nom du seau." : `Envoi impossible (${e.status || "CORS ou réseau"}). Il faut une règle CORS sur le seau autorisant ce site (PUT, POST, GET, DELETE, en-tête ETag exposé).`, "err"); }
   try { const r = await fetch(publicUrl(cfg, key)); if (!r.ok) throw new Error(r.status); }

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs>
+  <filter id="ink" x="-10%" y="-10%" width="120%" height="120%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="big"/>
+    <feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="1" seed="3" result="fine"/>
+    <feDisplacementMap in="SourceGraphic" in2="big" scale="5" xChannelSelector="R" yChannelSelector="G" result="wob"/>
+    <feColorMatrix in="fine" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.5 1.42" result="speck"/>
+    <feColorMatrix in="big" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -2.6 2.2" result="press"/>
+    <feComposite in="speck" in2="press" operator="arithmetic" k1="1" result="holes"/>
+    <feComposite in="wob" in2="holes" operator="in"/>
+  </filter>
+  <filter id="paper"><feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="3" seed="2"/><feColorMatrix values="0 0 0 0 .42  0 0 0 0 .34  0 0 0 0 .2  0 0 0 .09 0"/></filter>
+</defs><rect width="512" height="512" fill="#f4e8cc"/><rect width="512" height="512" filter="url(#paper)"/><g filter="url(#ink)" transform="rotate(-8 120.0 105.0)" fill="#b8322a" stroke="#b8322a" opacity=".85">
+  <rect x="-70" y="40" width="380" height="130" rx="10" fill="none" stroke-width="9"/>
+  <rect x="-56" y="54" width="352" height="102" rx="4" fill="none" stroke-width="3"/>
+  <text stroke="none" x="120.0" y="127.4" text-anchor="middle" font-family="Georgia, 'DejaVu Serif', serif" font-weight="700" font-size="64" letter-spacing="6">PAR AVION</text>
+</g><g filter="url(#ink)" transform="rotate(11 290 300)" fill="#1f5fa8" stroke="#1f5fa8">
+  <circle cx="290" cy="300" r="205" fill="none" stroke-width="15.4"/>
+  <circle cx="290" cy="300" r="164.0" fill="none" stroke-width="5.1"/>
+  <circle cx="290" cy="300" r="102.5" fill="none" stroke-width="5.1"/>
+  <path id="t290" d="M156.8 300 a133.2 133.2 0 0 1 266.5 0" fill="none" stroke="none"/>
+  <path id="b290" d="M138.3 300 a151.7 151.7 0 0 0 303.4 0" fill="none" stroke="none"/>
+  <text stroke="none" font-family="Georgia, 'DejaVu Serif', serif" font-weight="700" font-size="39.0" letter-spacing="6.1"><textPath href="#t290" startOffset="50%" text-anchor="middle">MON CARNET</textPath></text>
+  <text stroke="none" font-family="Georgia, 'DejaVu Serif', serif" font-weight="700" font-size="26.7" letter-spacing="8.2"><textPath href="#b290" startOffset="50%" text-anchor="middle">DE VOYAGES</textPath></text>
+  <text stroke="none" x="162.9" y="310.2" font-size="26.7" text-anchor="middle">★</text>
+  <text stroke="none" x="417.1" y="310.2" font-size="26.7" text-anchor="middle">★</text>
+  <path stroke="none" d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" transform="translate(290 300) rotate(45) scale(6.560) translate(-11.5 -12)"/>
+  
+</g></svg>
