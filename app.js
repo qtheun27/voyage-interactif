@@ -4,7 +4,7 @@ import { getAuth, onAuthStateChanged, signInAnonymously, signInWithPopup, signIn
   connectAuthEmulator, signInWithCredential, EmailAuthProvider, linkWithCredential, reauthenticateWithCredential, reauthenticateWithPopup,
   updatePassword, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import { getFirestore, doc, getDoc, getDocFromServer, getDocs, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collection, onSnapshot, writeBatch, serverTimestamp, getCountFromServer, connectFirestoreEmulator, Bytes }
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getDocFromCache, getFirestore, doc, getDoc, getDocFromServer, getDocs, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collection, onSnapshot, writeBatch, serverTimestamp, getCountFromServer, connectFirestoreEmulator, Bytes }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { firebaseConfig, OWNER_EMAIL, OWNER_NAME, emulators } from "./firebase-config.js";
 import { toLocalInput, fromLocalInput } from "./lib/time.js";
@@ -39,7 +39,10 @@ let fb = null, auth = null, db = null;
 if (configured){
   fb = initializeApp(firebaseConfig);
   auth = getAuth(fb); auth.languageCode = "fr";
-  db = getFirestore(fb);
+  // Cache local (IndexedDB) : à la réouverture, le carnet et ses miniatures s'affichent tout de suite,
+  // seules les nouveautés sont téléchargées.
+  try { db = initializeFirestore(fb, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }
+  catch(_){ db = getFirestore(fb); }
   if (emulators?.host){
     const h = emulators.host;
     connectAuthEmulator(auth, `http://${h}:9099`, {disableWarnings:true});
@@ -101,6 +104,18 @@ document.addEventListener("click", e => {
   if (a.dataset.action === "signout"){ $("acct").hidden = true; signOut(auth).then(() => { location.hash = "#/"; }); }
 });
 
+/* L'appli est gardée sur l'appareil (sw.js). Une nouvelle version : rechargée d'elle-même juste après l'ouverture,
+   sinon proposée. */
+const bootAt = Date.now();
+if ("serviceWorker" in navigator && configured && !emulators?.host && location.protocol === "https:"){
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+  let told = false;
+  navigator.serviceWorker.addEventListener("message", e => {
+    if (e.data?.type !== "update" || told) return; told = true;
+    if (Date.now() - bootAt < 6000 && !adding && $("add").hidden) location.reload();
+    else toast("Une nouvelle version de l'appli est prête.", () => location.reload(), "Recharger");
+  });
+}
 let toastTimer = null;
 function toast(t, action, button){
   const el = $("toast"); el.textContent = t; el.hidden = false; el.classList.toggle("clickable", !!action && !button);
@@ -588,7 +603,8 @@ async function openTrip(id, seq, force){
   closeTrip();
   if (!user) return showGate(id);
   let snap;
-  try { snap = await getDoc(doc(db, "trips", id)); }
+  try { const c = await getDocFromCache(doc(db, "trips", id)); if (c.exists()) snap = c; } catch(_){}
+  if (!snap) try { snap = await getDoc(doc(db, "trips", id)); }
   catch(err){
     if (seq !== routeSeq) return;
     if (err?.code === "permission-denied"){ return showGate(id); }
@@ -602,18 +618,21 @@ async function openTrip(id, seq, force){
   T.id = id; setTrip(snap.data());
   if (!isEditor) remember(id, {id, ...T.trip});
   show("screen-trip");
-  await buildMap();
-  if (seq !== routeSeq || T.id !== id) return;
-  render(false);
+  // La carte (fonds GeoJSON) et les photos se chargent en même temps.
+  const mapReady = buildMap();
   T.unsubs.push(onSnapshot(doc(db, "trips", id), s => {
     if (!s.exists()) return;
     const prevTz = T.tz; setTrip(s.data());
     if (!isEditor) remember(id, {id, ...T.trip});
     if (prevTz !== T.tz) render(false); else renderStatus();
   }, () => {}));
-  let first = true;
-  T.unsubs.push(onSnapshot(collection(db, `trips/${id}/stops`), snap => {
-    const added = first ? [] : snap.docChanges().filter(c => c.type === "added").map(c => c.doc.id).filter(x => !T.mine.has(x));
+  let first = true, fromCache = false;
+  T.unsubs.push(onSnapshot(collection(db, `trips/${id}/stops`), {includeMetadataChanges: true}, snap => {
+    // Après un affichage depuis le cache, les photos arrivées entre-temps ne sont pas annoncées une à une.
+    const changes = snap.docChanges();
+    if (!first && !changes.length){ fromCache = snap.metadata.fromCache; return; }   // seulement « synchronisé avec le serveur »
+    const added = first || fromCache ? [] : changes.filter(c => c.type === "added").map(c => c.doc.id).filter(x => !T.mine.has(x));
+    fromCache = snap.metadata.fromCache;
     T.photos = snap.docs.map(s => { const d = s.data(); return {id:s.id, ...d, thumbUrl: imgUrl("thumb:" + s.id, d.thumb), hasPhoto: !!d.hasPhoto}; })
       .filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng) && Number.isFinite(s.at));
     T.loaded = true;
@@ -628,11 +647,13 @@ async function openTrip(id, seq, force){
     const isFirst = first; first = false;
     // Pendant un gros envoi, les mises à jour arrivent par dizaines : on redessine au plus toutes les 0,6 s.
     clearTimeout(T.renderTimer);
-    if (isFirst) after(); else T.renderTimer = setTimeout(after, adding ? 1500 : 250);
+    if (isFirst){ if (T.land) after(); else mapReady.then(() => { if (T.id === id) after(); }); }
+    else T.renderTimer = setTimeout(after, adding ? 1500 : 250);
   }, err => {
     T.loaded = true; render(false);
     if (err?.code === "permission-denied") revoked(id);
   }));
+  mapReady.then(() => { if (T.id === id && !T.J) render(false); });
   // Réactions et commentaires, en direct.
   T.unsubs.push(onSnapshot(collection(db, `trips/${id}/reactions`), snap => {
     T.reacts = new Map(snap.docs.map(d => [d.id, d.data()]));
@@ -691,8 +712,9 @@ function bboxOf(gj){
   return n >= s ? [[s, w], [n, e]] : null;
 }
 async function buildMap(){
+  const id = T.id;
   const [pack, country, world] = await Promise.all([loadPack(T.trip.country), loadCountry(T.trip.country), loadWorld()]);
-  if (!T.id) return;
+  if (!T.id || T.id !== id) return;
   T.pack = pack;
   T.land = makeLand(country, world);
   const bb = country ? bboxOf(country) : null;

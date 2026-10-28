@@ -81,6 +81,12 @@ Pour les proches : écran d'accueil du voyage, **Revivre le voyage** (la carte s
 - Un « pack » ajoute lieux connus, pictogrammes, ferries et étiquettes : voir `packs/MLT.js`, à déclarer dans `packs/index.js`.
 - Sans lieu connu à proximité, le nom vient de Nominatim (OpenStreetMap), 1 requête par seconde au plus, puis il est enregistré dans la photo.
 
+## Rapidité
+
+- **Cache Firestore** sur l'appareil (IndexedDB) : à la réouverture, le carnet et ses miniatures s'affichent tout de suite, seules les nouveautés sont téléchargées.
+- **sw.js** garde l'appli, les bibliothèques, les polices et les fonds de carte sur le téléphone ; une nouvelle version publiée est détectée et l'appli se recharge d'elle-même à l'ouverture (ou propose « Recharger »).
+- Carte et photos se chargent en parallèle ; exifr (photos HEIC) n'est chargé qu'au premier ajout de photos qui en a besoin ; modules Firebase préchargés.
+
 ## Tests
 
 ```sh
