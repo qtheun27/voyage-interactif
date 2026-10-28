@@ -580,3 +580,4 @@ h1.appname{white-space:normal!important;overflow:visible!important;text-overflow
 .stop.ins-before,.leg.ins-before{box-shadow:0 -4px 0 0 var(--accent)}
 .stop.ins-after,.leg.ins-after{box-shadow:0 4px 0 0 var(--accent)}
 .leg.drop,.leg.ins-before,.leg.ins-after{box-shadow:0 0 0 3px var(--accent);border-radius:12px}
+.offlegs{text-align:center;margin:14px 0 4px}
