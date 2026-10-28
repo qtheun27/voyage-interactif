@@ -758,12 +758,14 @@ async function buildMap(){
     (pack.marks || []).forEach(([la,lo,k]) => L.marker([la,lo], {interactive:false, keyboard:false, icon:L.divIcon({className:"mark", html:ICONS[k], iconSize:[22,22], iconAnchor:[11,30]})}).addTo(map));
   }
   const syncZoom = () => { const z = map.getZoom(); const w = $("mapwrap");
-    w.classList.toggle("z-close", z >= 12); w.classList.toggle("z-mid", z >= 10.75); w.classList.toggle("z-far", z < 8); };
+    w.classList.toggle("z-close", z >= 12); w.classList.toggle("z-street", z >= 16); w.classList.toggle("z-mid", z >= 10.75); w.classList.toggle("z-far", z < 8); };
   map.on("zoomend", syncZoom); syncZoom();
   T.layers = { route: L.layerGroup().addTo(map), legpics: L.layerGroup().addTo(map), pins: L.layerGroup().addTo(map), story: L.layerGroup().addTo(map) };
   // Trois fonds : « Paysage » (vue du ciel adoucie : verdure, villes, mer, avec le nom des lieux), « Plan » (les rues),
   // « Illustrée » (la carte dessinée du carnet).
-  const carto = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+  // Plan : OpenStreetMap France (libre, sans clé, noms en français). CARTO demande désormais une clé.
+  const osm = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · <a href="https://www.openstreetmap.fr" target="_blank" rel="noopener">OSM France</a>';
+  const osmfr = extra => L.tileLayer("https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png", { subdomains:"abc", maxZoom:20, maxNativeZoom:19, className:"streets-tiles", attribution:osm, ...extra });
   T.styles = {
     // Vue du ciel Sentinel-2 sans nuages (EOX, libre sans clé pour un usage non commercial) jusqu'au niveau du village,
     // puis le plan des rues quand on zoome sur une étape.
@@ -771,12 +773,9 @@ async function buildMap(){
       L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg", {
         maxZoom:20, maxNativeZoom:14, className:"photo-tiles",
         attribution:'Vue du ciel <a href="https://cloudless.eox.at" target="_blank" rel="noopener">EOxCloudless</a> par EOX IT Services GmbH (données Copernicus Sentinel modifiées)' }),
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png", {
-        subdomains:"abcd", maxZoom:15.99, className:"label-tiles", attribution:carto }),
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-        subdomains:"abcd", minZoom:16, maxZoom:20, className:"streets-tiles", attribution:carto })
+      osmfr({ minZoom:16 })
     ]),
-    plan: L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { subdomains:"abcd", maxZoom:20, className:"streets-tiles", attribution:carto }),
+    plan: osmfr(),
     illustree: null
   };
   map.on("click", e => { if (picking) endPick(e.latlng); });
