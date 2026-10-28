@@ -49,6 +49,8 @@ Avec la CLI : `npx firebase deploy --only firestore:rules` (après avoir mis l'i
 
 ## Le récit du voyage
 
+- **Chronologie d'abord** : deux étapes voisines le même jour, sans photo entre elles, sont réunies (moins de 1 km et 3 h, ou 2 km et 30 min si l'une n'a qu'une photo) ; un arrêt de quelques minutes au milieu d'un trajet (le bateau devant une grotte) ne coupe pas le trajet ; une photo entre deux photos prises en route est en route. Deux étapes qui ont chacune un petit mot, ou une étape commencée à la main, restent distinctes.
+- **↺ Remettre dans l'ordre des photos** (en tête d'un jour, quand il a été retouché) : heures et lieux lus dans les photos (`origAt`, gardé à l'envoi, sinon l'heure GPS), rangements et heures inventées oubliés ; noms et petits mots gardés ; Annuler.
 - Les photos sont regroupées en **étapes** (même jour, moins de 75 min et 600 m d'écart, ou au même endroit à 150 m près dans les 5 h) reliées par des **trajets**.
 - **Ajout en masse** (100 photos et plus) : lecture en parallèle, vignettes légères, photos déjà publiées ignorées, puis un **plan** qui montre les étapes et trajets détectés avant publication (nom et petit mot par étape, moyen de transport par trajet). Envoi 2 par 2, écran maintenu allumé, reprise possible.
 - **Fiche trajet** (crayon dans le carnet, ou toucher le trajet sur la carte) : moyen de transport (avion, bateau, voiture, taxi, bus, train, vélo, à pied), nom, petit mot, masquer. Étapes : fusionner avec la précédente, ou nouvelle étape à partir d'une photo.

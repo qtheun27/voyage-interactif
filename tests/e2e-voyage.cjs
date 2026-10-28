@@ -123,6 +123,18 @@ const txt = s => s.replace(/\s+/g, ' ').trim();
   const o1 = await order(); log('nouvel ordre :', o1.join(' > '), '|', txt(await p.textContent('#toast')));
   await p.click('#toast .toast-btn'); await p.waitForTimeout(1500);
   log('annulé :', (await order()).join(' > ') === o0.join(' > '));
+  // Même déplacement, puis « Remettre dans l'ordre des photos » sur le jour
+  p.on('dialog', d => d.accept());
+  await p.waitForSelector('#toast', { state: 'hidden', timeout: 10000 }).catch(() => {});
+  {
+    const s2 = await srcRow.boundingBox(), d2 = await dstRow.boundingBox();
+    await p.mouse.move(s2.x + s2.width / 2, s2.y + s2.height / 2); await p.mouse.down();
+    await p.waitForFunction(() => document.body.classList.contains('dragmode'), null, { timeout: 5000 });
+    await p.mouse.move(d2.x + d2.width / 2, d2.y + 4, { steps: 10 }); await p.waitForTimeout(200); await p.mouse.up(); await p.waitForTimeout(1500);
+  }
+  log('déplacé :', (await order()).join(' > ') !== o0.join(' > '), '| bouton :', await p.$$eval('[data-dayfix]', e => e.map(x => x.textContent).join()));
+  await p.click('[data-dayfix]'); await p.waitForTimeout(1500);
+  log('remis dans l\'ordre :', (await order()).join(' > ') === o0.join(' > '), '| bouton restant :', await p.$$eval('[data-dayfix]', e => e.length));
   // Supprimer un trajet puis le rétablir
   await p.waitForSelector('#toast', { state: 'hidden', timeout: 10000 }).catch(() => {});
   const nRoutes = async () => p.$$eval('path.route', e => e.length);
