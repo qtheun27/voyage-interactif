@@ -78,7 +78,7 @@ Pour les proches : écran d'accueil du voyage, **Revivre le voyage** (la carte s
 
 ## Fonds de carte
 
-Bouton de la carte (en haut) : **Paysage** (par défaut : vue du ciel Esri World Imagery adoucie, noms de lieux CARTO par-dessus), **Plan** (CARTO Voyager), **Illustrée** (la carte dessinée du carnet). Le choix est retenu sur l'appareil.
+Bouton de la carte (en haut) : **Paysage** (par défaut : vue du ciel Sentinel-2 EOxCloudless, sans clé, usage non commercial, noms de lieux CARTO par-dessus, plan des rues au-delà du zoom 16 ; repli automatique sur la carte dessinée si les tuiles ne viennent pas), **Plan** (CARTO Voyager), **Illustrée** (la carte dessinée du carnet). Le choix est retenu sur l'appareil.
 
 ## Pays et packs
 

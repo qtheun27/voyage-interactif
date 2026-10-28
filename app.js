@@ -765,11 +765,16 @@ async function buildMap(){
   // « Illustrée » (la carte dessinée du carnet).
   const carto = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
   T.styles = {
+    // Vue du ciel Sentinel-2 sans nuages (EOX, libre sans clé pour un usage non commercial) jusqu'au niveau du village,
+    // puis le plan des rues quand on zoome sur une étape.
     paysage: L.layerGroup([
-      L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-        maxZoom:19, maxNativeZoom:18, className:"photo-tiles", attribution:"Vue du ciel © Esri, Maxar, Earthstar Geographics" }),
+      L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg", {
+        maxZoom:20, maxNativeZoom:14, className:"photo-tiles",
+        attribution:'Vue du ciel <a href="https://cloudless.eox.at" target="_blank" rel="noopener">EOxCloudless</a> par EOX IT Services GmbH (données Copernicus Sentinel modifiées)' }),
       L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png", {
-        subdomains:"abcd", maxZoom:20, className:"label-tiles", attribution:carto })
+        subdomains:"abcd", maxZoom:15.99, className:"label-tiles", attribution:carto }),
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+        subdomains:"abcd", minZoom:16, maxZoom:20, className:"streets-tiles", attribution:carto })
     ]),
     plan: L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { subdomains:"abcd", maxZoom:20, className:"streets-tiles", attribution:carto }),
     illustree: null
@@ -777,17 +782,20 @@ async function buildMap(){
   map.on("click", e => { if (picking) endPick(e.latlng); });
   let pref = null; try { pref = localStorage.getItem("vi.mapStyle"); } catch(_){}
   setMapStyle(pref in MAP_STYLES ? pref : "paysage");
+  // Fond indisponible (réseau, service) : on revient à la carte dessinée plutôt que d'afficher des cases vides.
+  let errs = 0;
+  T.styles.paysage.eachLayer(l => l.on("tileerror", () => { if (++errs === 8 && T.mapStyle === "paysage"){ setMapStyle("illustree", false); toast("Vue du ciel indisponible : carte dessinée affichée"); } }));
   setTimeout(() => map.invalidateSize(), 0);
 }
 const MAP_STYLES = { paysage: "Paysage", plan: "Plan", illustree: "Illustrée" };
-function setMapStyle(s){
+function setMapStyle(s, keep = true){
   T.mapStyle = s;
   if (!T.map) return;
   Object.entries(T.styles).forEach(([k, l]) => { if (!l) return; if (k === s) l.addTo(T.map); else l.remove(); });
   $("mapwrap").classList.toggle("streets", s !== "illustree");
   $("mapwrap").dataset.style = s;
   $("map-style-name").textContent = MAP_STYLES[s];
-  try { localStorage.setItem("vi.mapStyle", s); } catch(_){}
+  if (keep) try { localStorage.setItem("vi.mapStyle", s); } catch(_){}
 }
 $("btn-streets").onclick = () => {
   const ks = Object.keys(MAP_STYLES), next = ks[(ks.indexOf(T.mapStyle) + 1) % ks.length];
