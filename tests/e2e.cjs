@@ -15,7 +15,7 @@ async function setup(ctx){
   await ctx.route(/leaflet\.min\.css$/, r => r.fulfill({ path: R + '/node_modules/leaflet/dist/leaflet.css', contentType: 'text/css' }));
   await ctx.route(/exifr@7\.1\.3/, r => r.fulfill({ path: R + '/node_modules/exifr/dist/lite.umd.js', contentType: 'text/javascript' }));
   await ctx.route(/fonts\.googleapis|fonts\.gstatic|geoboundaries/, r => r.abort());
-  await ctx.route(/basemaps\.cartocdn\.com|arcgisonline/, r => r.fulfill({ body: blankPng, contentType: 'image/png' }));
+  await ctx.route(/basemaps\.cartocdn\.com|arcgisonline|maps\.eox\.at/, r => r.fulfill({ body: blankPng, contentType: 'image/png' }));
   await ctx.route(/nominatim\.openstreetmap\.org/, r => r.fulfill({ contentType: 'application/json', headers: {'access-control-allow-origin': '*'}, body: JSON.stringify({ name: '', address: { village: 'Lieu OSM test' } }) }));
   await ctx.route(/127\.0\.0\.1:8000\/firebase-config\.js/, r => r.fulfill({ body: testCfg, contentType: 'text/javascript' }));
 }
