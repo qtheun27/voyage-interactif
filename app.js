@@ -102,9 +102,12 @@ document.addEventListener("click", e => {
 });
 
 let toastTimer = null;
-function toast(t, action){
-  const el = $("toast"); el.textContent = t; el.hidden = false; el.classList.toggle("clickable", !!action);
-  el.onclick = action ? () => { el.hidden = true; action(); } : null;
+function toast(t, action, button){
+  const el = $("toast"); el.textContent = t; el.hidden = false; el.classList.toggle("clickable", !!action && !button);
+  el.onclick = action && !button ? () => { el.hidden = true; action(); } : null;
+  // Une action à ne pas déclencher par mégarde (« Annuler ») n'a qu'un vrai bouton.
+  if (action && button){ const b = document.createElement("button"); b.type = "button"; b.className = "toast-btn"; b.textContent = button;
+    b.onclick = () => { el.hidden = true; action(); }; el.append(" ", b); }
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.hidden = true, action ? 7000 : 4200);
 }
 function setMsg(id, t, kind){ const m = $(id); m.hidden = !t; m.textContent = t || ""; m.classList.toggle("err", kind === "err"); m.classList.toggle("ok", kind === "ok"); }
@@ -1158,7 +1161,11 @@ $("lb-editbtn").onclick = () => {
   document.querySelectorAll("#lb-edit .only-stop").forEach(x => x.hidden = !isStop);
   $("e-name").value = isStop ? e.place : ""; $("e-caption").value = isStop ? e.caption : (it.caption || "");
   $("e-caption-label").firstChild.textContent = isStop ? "Petit mot de l'étape" : "Petit mot sur cette photo";
-  $("e-when").value = toLocalInput(T.tz, isStop ? e.at : it.at);
+  // L'heure modifiée est celle de la photo (ou vidéo) affichée ; « Décaler toute l'étape » reste possible.
+  $("e-when").value = toLocalInput(T.tz, it.at);
+  $("e-when-label").textContent = `Heure de cette ${it.video ? "vidéo" : "photo"}`;
+  $("e-shift").checked = false; $("e-shift-row").hidden = !isStop || e.items.length < 2;
+  $("e-shift").onchange = () => $("e-when").value = toLocalInput(T.tz, $("e-shift").checked ? e.at : it.at);
   $("e-tag").value = isStop ? (e.items.find(x => x.tag)?.tag || "") : "";
   const forced = (e.kind === "leg" ? (e.to?.items.find(x => x.arriveBy) || e.items.find(x => x.arriveBy)) : e.items.find(x => x.arriveBy))?.arriveBy || "";
   $("e-mode").value = forced;
@@ -1199,9 +1206,9 @@ async function moveItemsTo(items, target){
       ...(far ? { at: target.end + (++k) * 1000, approxTime: true } : {}),
       ...((x.approxPos || x.video || km(x, target) > 1) ? { lat: target.lat, lng: target.lng, approxPos: true } : {}) };
   });
-  toast(`${items.length > 1 ? `${items.length} éléments rangés` : "Rangé"} dans « ${target.place || "l'étape"} » · Annuler`, async () => {
+  toast(`${items.length > 1 ? `${items.length} éléments rangés` : "Rangé"} dans « ${target.place || "l'étape"} »`, async () => {
     const b = writeBatch(db); items.forEach((x, i) => b.update(stopRef(x.id), before[i])); await b.commit(); toast("Rangement annulé");
-  });
+  }, "Annuler");
 }
 const targetStop = () => T.J.stops.find(s => s.id === $("e-target").value);
 $("e-move-photo").onclick = async () => {
@@ -1306,8 +1313,19 @@ $("e-save").onclick = async () => {
   try {
     const b = writeBatch(db); const ups = new Map();
     const up = (x, u) => ups.set(x.id, {...(ups.get(x.id) || {}), ...u});
+    // Nouvelle heure pour la seule photo affichée : elle quitte son rangement manuel et rejoint l'étape de ce moment-là ;
+    // sa position suit si elle n'était qu'estimée (vidéo sans lieu, par exemple).
+    const own = t != null && Math.abs(t - it.at) > 59000 && !(isStop && $("e-shift").checked && e.items.length > 1);
+    if (own){
+      up(it, {at: t, approxTime: false, stopRef: "", joinPrev: false, splitHere: false});
+      if (it.approxPos){
+        const known = T.photos.filter(p => p.id !== it.id && !p.approxPos).map(p => ({at:p.at, lat:p.lat, lng:p.lng})).sort((a,b) => a.at - b.at);
+        const est = estimatePosition(t, known, { airport: T.pack?.airport, inCountry: T.land?.inCountry });
+        if (est) up(it, {lat: est.lat, lng: est.lng, approxPos: true, moving: !!est.inFlight, still: !est.inFlight});
+      }
+    }
     if (isStop){
-      const delta = t != null ? t - e.at : 0;
+      const delta = t != null && !own ? t - e.at : 0;
       e.items.forEach((x, k) => {
         if ((x.place || "") !== name) up(x, {place: name});
         const c = k === 0 ? cap : ""; if ((x.caption || "") !== c) up(x, {caption: c});
@@ -1318,13 +1336,15 @@ $("e-save").onclick = async () => {
       if (it.hasPhoto && moving !== !!it._moving) up(it, moving ? {moving: true, still: false} : {moving: false, still: true});
     } else {
       if ((it.caption || "") !== cap) up(it, {caption: cap});
-      const t2 = t != null && Math.abs(t - it.at) > 59000 ? t : null; if (t2 != null) up(it, {at: t2, approxTime: false});
       const holder = e.to?.items[0] || e.items[0];
       [...(e.to?.items || []), ...e.items].forEach(x => { const md = x === holder ? mode : ""; if ((x.arriveBy || "") !== md) up(x, {arriveBy: md}); });
       if (!moving) up(it, {moving: false, still: true});
     }
     ups.forEach((u, id) => b.update(stopRef(id), u));
     if (ups.size) await b.commit();
+    // Une étape choisie dans « Ranger dans une autre étape » puis « Enregistrer » : on range cette photo.
+    const tgt = targetStop();
+    if (tgt){ await moveItemsTo([it], tgt); setMsg("e-msg", ""); $("e-save").disabled = false; closeLb(); return; }
     if (!name) delete T.autoNames[e.id];
     $("lb-edit").hidden = true; $("lb-nav").hidden = false; setMsg("e-msg", "");
     drawLb();

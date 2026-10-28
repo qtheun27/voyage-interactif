@@ -93,8 +93,36 @@ const log = (...a) => console.log('•', ...a), txt = s => s.replace(/\s+/g, ' '
   await p.waitForFunction(() => /Rangé dans « Mġarr/.test(document.querySelector('#toast').textContent));
   await p.waitForTimeout(800);
   log('après rangement : Valletta', await p.$$eval('#list .stop', els => els.filter(e => /Valletta/.test(e.textContent)).length), 'étape(s) | Mġarr :', await p.$eval('#list .stop:has-text("Mġarr") .thumbstack', e => e.textContent.trim() || '1'));
-  await p.click('#toast'); await p.waitForTimeout(1200);
+  await p.click('#toast .toast-btn'); await p.waitForTimeout(1200);
   log('annulé : Valletta', await p.$$eval('#list .stop', els => els.filter(e => /Valletta/.test(e.textContent)).length), 'étape(s)');
+  // Vidéo mal placée : choisir l'étape puis « Enregistrer » la range ; changer son heure ne déplace qu'elle
+  await p.waitForSelector('#toast', { state: 'hidden', timeout: 10000 });
+  const openVideo = async () => {
+    await p.click('#list .stop:has(.vmark) button[data-open]'); await p.waitForSelector('#lb:not([hidden])');
+    for (let k = 0; k < 12 && !(await p.$('#lb-img video')); k++) await p.click('#lb-img .arrow.r');
+    return txt(await p.textContent('#lb-title'));
+  };
+  const where0 = await openVideo();
+  await p.click('#lb-editbtn');
+  log('fiche vidéo :', await p.textContent('#e-when-label'), '| décaler toute l\'étape proposé :', await p.isVisible('#e-shift'));
+  const opts = await p.$$eval('#e-target option', o => o.map(x => x.textContent));
+  const dest = opts.find(t => /Valletta/.test(t)) || opts[1];
+  await p.selectOption('#e-target', { label: dest });
+  await p.click('#e-save');
+  await p.waitForFunction(() => /Rangé dans/.test(document.querySelector('#toast').textContent), null, { timeout: 10000 });
+  await p.waitForTimeout(1000);
+  log('rangée par Enregistrer :', where0, '->', await p.$$eval('#list .stop', els => els.filter(e => e.querySelector('.vmark')).map(e => e.querySelector('.place').textContent).join(', ')));
+  await p.click('#toast .toast-btn'); await p.waitForTimeout(1200);
+  await p.waitForSelector('#toast', { state: 'hidden', timeout: 10000 }).catch(() => {});
+  const stops0 = await p.$$eval('#list .stop', e => e.length);
+  await openVideo(); await p.click('#lb-editbtn');
+  const other = await p.evaluate(() => { const o = [...document.querySelectorAll('#e-target option')].find(x => /Mġarr/.test(x.textContent)); return o?.textContent; });
+  const hh = /(\d{1,2}):(\d{2})/.exec(other);
+  const cur = await p.inputValue('#e-when');
+  await p.fill('#e-when', cur.slice(0, 11) + hh[1].padStart(2, '0') + ':' + String(+hh[2] + 1).padStart(2, '0'));
+  await p.click('#e-save'); await p.waitForTimeout(1500);
+  log('heure changée :', stops0, '->', await p.$$eval('#list .stop', e => e.length), 'étapes | vidéo dans :', await p.$$eval('#list .stop', els => els.filter(e => e.querySelector('.vmark')).map(e => e.querySelector('.place').textContent).join(', ')));
+  await p.click('#lb-close').catch(() => {});
   // Appui long et glisser : l'étape « Mġarr » glissée dans « Ċirkewwa »
   await p.waitForSelector('#toast', { state: 'hidden', timeout: 10000 });
   const n0 = await p.$$eval('#list .stop', e => e.length);
