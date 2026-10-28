@@ -876,7 +876,7 @@ function renderLog(){
   if (T.view === "photos") return renderGallery(el);
   el.innerHTML = byDay(visibleEntries()).map(([d,l]) => {
     const st = l.filter(e => e.kind === "stop"), dd = l.filter(e => e.kind === "leg").reduce((s, x) => s + x.km, 0);
-    return `<section class="day" style="--dc:${dc(d)}"><div class="day-head"><h2>${dayName(d)}</h2><span>${esc(T.F.dayLabel.format(dayDate(d)))}${dd >= .5 ? ` · ${fmtKm(dd)} km` : ""}${st.length ? ` · ${st.length} étape${st.length>1?"s":""}` : ""}</span></div>
+    return `<section class="day" style="--dc:${dc(d)}"><div class="day-head"><h2>${dayName(d)}</h2><span>${esc(T.F.dayLabel.format(dayDate(d)))}${dd >= .5 ? ` · ${fmtKm(dd)} km` : ""}${st.length ? ` · ${st.length} étape${st.length>1?"s":""}` : ""}</span>${isEditor && dayMessy(d) ? `<button type="button" class="linkbtn dayfix" data-dayfix="${d}">↺ Remettre dans l'ordre des photos</button>` : ""}</div>
       <ol class="stops">${l.map(e => e.kind === "leg" ? legRow(e) : stopRow(e)).join("")}</ol></section>`;
   }).join("");
   const off = isEditor ? T.J.legs.filter(x => x.off).length : 0;
@@ -980,6 +980,7 @@ $("days").addEventListener("click", e => {
 $("view-tabs").addEventListener("click", e => { const b = e.target.closest("[data-view]"); if (!b) return; T.view = b.dataset.view; renderLog(); });
 $("list").addEventListener("click", e => {
   if (suppressClick){ e.preventDefault(); e.stopPropagation(); return; }
+  const fx = e.target.closest("[data-dayfix]"); if (fx){ resetDay(+fx.dataset.dayfix); return; }
   if (e.target.closest("#btn-showoff")){ T.showOff = !T.showOff; render(false); return; }
   const le = e.target.closest("[data-legedit]"); if (le) return openLegSheet(le.dataset.legedit);
   const se = e.target.closest("[data-edit]"); if (se){ openEntry(se.dataset.edit, true); $("lb-editbtn").click(); return; }
@@ -1302,6 +1303,30 @@ function dragStart(ev){
   document.addEventListener("touchmove", move, {passive: false}); document.addEventListener("mousemove", move);
   ["touchend", "touchcancel", "mouseup"].forEach(t => document.addEventListener(t, end));
 }
+/* « Remettre dans l'ordre des photos » : un jour revient à l'heure et au lieu lus dans les photos, rangé automatiquement.
+   Noms, petits mots, étiquettes et réglages des trajets sont gardés ; rangements, déplacements et heures inventées sont oubliés. */
+function realTime(x){
+  if (x.origAt != null) return x.origAt;
+  if (x.gpsAt && !x.gpsStale && Math.abs(x.gpsAt - x.at) > 60000 && Math.abs(x.gpsAt - x.at) < 3 * 3600e3) return x.gpsAt;
+  return null;
+}
+const manualItem = x => x.joinPrev || x.splitHere || (x.stopRef && x.stopRef !== x.id) || x.still || (x.moving && !x.approxPos) || realTime(x) != null && realTime(x) !== x.at;
+function dayItems(d){ const k = T.J.days[d]; return T.photos.filter(x => dayKey(x.at) === k || (realTime(x) != null && dayKey(realTime(x)) === k)); }
+function dayMessy(d){ return dayItems(d).some(manualItem); }
+async function resetDay(d){
+  const its = dayItems(d); if (!its.length) return;
+  if (!confirm(`Remettre « ${dayName(d)} » dans l'ordre des photos ? Les heures et lieux lus dans les photos reprennent le dessus, les étapes et trajets sont recalculés. Les noms et petits mots sont gardés.`)) return;
+  const F = ["at", "approxTime", "origAt", "joinPrev", "splitHere", "stopRef", "still", "moving"];
+  const before = its.map(x => Object.fromEntries(F.map(k => [k, x[k] ?? (k === "at" ? x.at : k === "stopRef" ? "" : k === "origAt" ? null : false)])));
+  try {
+    await updateEach(its, x => { const t = realTime(x);
+      return { ...(t != null ? {at: t, approxTime: false} : {}), joinPrev: false, splitHere: false, stopRef: "", still: false, ...(x.approxPos ? {} : {moving: false}) }; });
+    toast(`${dayName(d)} remis dans l'ordre des photos`, async () => {
+      const b = writeBatch(db); its.forEach((x, i) => b.update(stopRef(x.id), before[i])); await b.commit(); toast("Retour à l'état précédent");
+    }, "Annuler");
+  } catch(_){ toast("La remise en ordre a échoué. Réessaie."); }
+}
+
 /* Changer l'ordre : l'étape prend des heures entre ses nouvelles voisines (marquées estimées). « Annuler » remet tout. */
 async function reorderStop(src, prev, next){
   const its = src.items, n = its.length;
@@ -1309,7 +1334,7 @@ async function reorderStop(src, prev, next){
   if (prev && next && b - a < (n + 2) * 1000) return toast("Pas de place entre ces deux étapes : change plutôt l'heure dans « Modifier ».");
   const step = (b - a) / (n + 1);
   const before = its.map(x => ({ at: x.at, approxTime: !!x.approxTime, stopRef: x.stopRef || "", joinPrev: !!x.joinPrev, splitHere: !!x.splitHere, moving: !!x.moving, still: !!x.still }));
-  await updateEach(its, x => ({ at: Math.round(a + step * (its.indexOf(x) + 1)), approxTime: true, stopRef: "", joinPrev: its.indexOf(x) > 0, splitHere: its.indexOf(x) === 0, moving: false, still: true }));
+  await updateEach(its, x => ({ ...(x.origAt == null && !x.approxTime ? {origAt: x.at} : {}), at: Math.round(a + step * (its.indexOf(x) + 1)), approxTime: true, stopRef: "", joinPrev: its.indexOf(x) > 0, splitHere: its.indexOf(x) === 0, moving: false, still: true }));
   toast(`« ${src.place || "Étape"} » déplacée${prev ? ` après « ${prev.place || "l'étape"} »` : " au début"}`, async () => {
     const bt = writeBatch(db); its.forEach((x, i) => bt.update(stopRef(x.id), before[i])); await bt.commit(); toast("Déplacement annulé");
   }, "Annuler");
@@ -1773,6 +1798,7 @@ $("add-form").addEventListener("submit", async e => {
         || (p.inFlight ? "" : await reverseGeocode(p.lat, p.lng));
       const docData = { lat:p.lat, lng:p.lng, at:p.at, created:Date.now(), place, caption: inf.caption || inf.captionOld || "",
         thumb: await toBytes(small), hasPhoto: true, approxPos: !!p.approxPos, approxTime: !!p.approxTime, device: p.device || "",
+        ...(p.metaAt != null && !p.stripped ? {origAt: p.metaAt} : {}),
         by: user.uid, byName: user.displayName || user.email || "", ...(p.gpsAt ? {gpsAt: p.gpsAt} : {}), ...(p.stale ? {gpsStale: true} : {}),
         ...(p.inFlight ? {moving: true} : {}), ...(inf.arriveBy ? {arriveBy: inf.arriveBy} : {}), ...(video ? {video} : {}), ...(photo || {}),
         ...(p.stopRef ? {stopRef: p.stopRef} : {}) };

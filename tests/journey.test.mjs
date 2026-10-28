@@ -123,3 +123,36 @@ test("ranger à la main une photo (ou une vidéo) dans l'étape choisie", () => 
   j = buildJourney([a, b, { ...c, stopRef: a.id }, { ...d, stopRef: a.id }], opts);
   assert.equal(j.stops.length, 1); assert.equal(j.stops[0].items.length, 4);
 });
+
+test("une journée à Comino : une traversée, une étape, dans l'ordre des photos", () => {
+  // Photos réelles du 27/10 (heures UTC) : Għadira, ferry depuis Ċirkewwa, Blue Lagoon, balade sur Comino, retour au lagon.
+  const raw = [[35.96174, 14.35869, 9, 24, 22], [35.99781, 14.32292, 10, 0, 0], [36.00766, 14.32715, 10, 4, 0], [36.00790, 14.32723, 10, 4, 0],
+    [36.00977, 14.32652, 10, 5, 52], [36.01098, 14.32124, 10, 8, 19], [36.01108, 14.31953, 10, 8, 53], [36.01372, 14.31559, 10, 10, 39],
+    [36.01386, 14.33022, 10, 11, 3, 1], [36.01520, 14.31527, 10, 11, 11], [36.01421, 14.32415, 10, 25, 3], [36.01398, 14.32438, 10, 32, 17],
+    [36.01403, 14.32437, 10, 32, 51], [36.01477, 14.32697, 10, 46, 9], [36.01469, 14.32701, 10, 46, 36], [36.01456, 14.32770, 10, 48, 25],
+    [36.01460, 14.32767, 10, 48, 44], [36.01459, 14.32766, 10, 49, 28], [36.01386, 14.32961, 10, 52, 22], [36.01255, 14.33197, 10, 56, 0],
+    [36.01272, 14.33229, 10, 56, 35], [36.01264, 14.33265, 10, 56, 58], [36.01264, 14.33265, 10, 57, 3], [36.01259, 14.33271, 10, 57, 44],
+    [36.01311, 14.33318, 10, 58, 37], [36.01362, 14.33378, 10, 59, 56], [36.01363, 14.33379, 11, 0, 18], [36.01525, 14.33575, 11, 4, 55],
+    [36.01522, 14.33582, 11, 5, 10], [36.01648, 14.33631, 11, 7, 22], [36.01673, 14.33623, 11, 7, 49], [36.01673, 14.33621, 11, 7, 58],
+    [36.01748, 14.33633, 11, 9, 50], [36.01747, 14.33633, 11, 10, 18], [36.01622, 14.33725, 11, 32, 49], [36.01336, 14.33051, 13, 53, 5]];
+  const ps = raw.map(([lat, lng, h, m, sec, approx]) => ph(lat, lng, T(27, h, m) + sec * 1000, approx ? { approxPos: true } : {}));
+  const j = buildJourney(ps, opts);
+  assert.equal(j.stops.length, 2, j.stops.map(s => `${s.items.length}`).join("/"));      // Għadira, puis Comino
+  assert.equal(j.legs.filter(l => l.mode === "boat").length, 1);                          // une seule traversée
+  const boat = j.legs.find(l => l.mode === "boat");
+  assert.ok(boat.items.length >= 6);
+  assert.equal(j.stops[1].items.length + boat.items.length + 1, ps.length);
+  // L'ordre chronologique est gardé
+  const order = j.timeline.flatMap(e => e.items.map(x => x.at));
+  assert.deepEqual(order, [...order].sort((a, b) => a - b));
+});
+
+test("étapes voisines réunies, sauf si l'éditeur les a voulues distinctes", () => {
+  const a = ph(35.8989, 14.5146, T(26, 10, 0)), b = ph(35.8995, 14.5150, T(26, 10, 30));
+  const c = ph(35.9050, 14.5180, T(26, 11, 30)), d = ph(35.9052, 14.5182, T(26, 11, 40));   // 750 m plus loin
+  assert.equal(buildJourney([a, b, c, d], opts).stops.length, 1);
+  assert.equal(buildJourney([{ ...a, caption: "Jardins" }, b, { ...c, caption: "Fort Saint-Elme" }, d], opts).stops.length, 2);
+  assert.equal(buildJourney([a, b, { ...c, splitHere: true }, d], opts).stops.length, 2);
+  const far = ph(35.9200, 14.4900, T(26, 11, 30));                                           // 3 km : nouvelle étape
+  assert.equal(buildJourney([a, b, far], opts).stops.length, 2);
+});
