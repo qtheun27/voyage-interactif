@@ -4,7 +4,7 @@ import { getAuth, onAuthStateChanged, signInAnonymously, signInWithPopup, signIn
   connectAuthEmulator, signInWithCredential, EmailAuthProvider, linkWithCredential, reauthenticateWithCredential, reauthenticateWithPopup,
   updatePassword, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getDocFromCache, getFirestore, doc, getDoc, getDocFromServer, getDocs, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collection, onSnapshot, writeBatch, serverTimestamp, getCountFromServer, connectFirestoreEmulator, Bytes }
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getDocFromCache, getFirestore, query, where, doc, getDoc, getDocFromServer, getDocs, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collection, onSnapshot, writeBatch, serverTimestamp, getCountFromServer, connectFirestoreEmulator, Bytes }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { firebaseConfig, OWNER_EMAIL, OWNER_NAME, emulators } from "./firebase-config.js";
 import { toLocalInput, fromLocalInput } from "./lib/time.js";
@@ -51,20 +51,29 @@ if (configured){
     window.__viTestSignIn = email => signInWithCredential(auth, GoogleAuthProvider.credential(JSON.stringify({sub: email, email, email_verified: true})));
   }
 }
-let user = null, isEditor = false, editorEmails = [], S3CFG = null;
+// globalEditor : éditeur de toute l'appli (config/editors) ; tripEdit : voyages dont on est éditeur (trips/{id}.editors).
+// isEditor : peut modifier ce qui est affiché (l'accueil, ou le voyage ouvert).
+let user = null, isEditor = false, globalEditor = false, tripEdit = new Set(), editorEmails = [], S3CFG = null;
+const myEmail = () => String(user?.email || "").toLowerCase();
+function setEditContext(tripId){ isEditor = globalEditor || (!!tripId && tripEdit.has(tripId)); }
 // Un compte : Google, ou e-mail + mot de passe dont l'adresse est confirmée (les visiteurs sont anonymes).
 const isGoogle = u => !!u && !u.isAnonymous && (u.providerData.some(p => p.providerId === "google.com") || (u.emailVerified && u.providerData.some(p => p.providerId === "password")));
 async function refreshRole(){
-  isEditor = false; editorEmails = [];
+  isEditor = globalEditor = false; editorEmails = []; tripEdit = new Set();
   loadProfile();
   if (!isGoogle(user)) return;
   try {
     const s = await getDoc(doc(db, "config/editors"));
-    isEditor = true; editorEmails = s.exists() ? (s.data().emails || []) : [];
-  } catch(_){ isEditor = false; }
+    globalEditor = true; editorEmails = s.exists() ? (s.data().emails || []) : [];
+  } catch(_){ globalEditor = false; }
+  // Sinon : éditeur de certains voyages seulement ?
+  if (!globalEditor){
+    try { tripEdit = new Set((await getDocs(query(collection(db, "trips"), where("editors", "array-contains", myEmail())))).docs.map(d => d.id)); } catch(_){}
+  }
+  isEditor = globalEditor;
   // Stockage des vidéos (Backblaze B2, compatible S3) : réglages lisibles par les seuls éditeurs.
   S3CFG = null;
-  if (isEditor){ try { const c = await getDoc(doc(db, "config/storage")); if (c.exists() && c.data().keyId) S3CFG = c.data(); } catch(_){} }
+  if (globalEditor || tripEdit.size){ try { const c = await getDoc(doc(db, "config/storage")); if (c.exists() && c.data().keyId) S3CFG = c.data(); } catch(_){} }
 }
 let authReadyResolve; const authReady = new Promise(r => authReadyResolve = r);
 let firstAuth = true, gateBusy = false;
@@ -89,7 +98,7 @@ async function editorSignIn(){
 /* Seuls les éditeurs ont un compte : les proches suivent un voyage avec son code, sans compte. */
 async function afterSignIn(what){
   await refreshRole();
-  if (!isEditor){
+  if (!globalEditor && !tripEdit.size){
     toast(`${what} n'est pas éditeur. Pour suivre un voyage, utilise son code.`);
     await signOut(auth); return false;
   }
@@ -244,7 +253,7 @@ function show(id){
 function parseHash(){
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (parts[0] === "admin") return {name:"appadmin"};
-  if (parts[0] === "editeur") return {name:"invite", email: parts[1] || ""};
+  if (parts[0] === "editeur") return {name:"invite", email: parts[1] || "", trip: parts[2] || ""};
   if (parts[0] === "v" && parts[1]) return {name: parts[2] === "admin" ? "admin" : "trip", id: parts[1], code: parts[2] === "c" ? parts[3] : null};
   return {name:"home"};
 }
@@ -256,10 +265,14 @@ async function route(authChanged){
   // Lien partagé avec le code : on le garde de côté et on l'efface de l'adresse.
   if (r.code){ linkCode = { id: r.id, code: normCode(r.code) }; history.replaceState(null, "", `#/v/${encodeURIComponent(r.id)}`); }
   if (r.name !== "trip") closeTrip();
+  setEditContext(r.name === "trip" || r.name === "admin" ? r.id : null);
+  // Invité comme éditeur d'un voyage : une fois connecté, on y va directement.
+  let inv = null; try { inv = sessionStorage.getItem("vi.inviteTrip"); } catch(_){}
+  if (inv && (globalEditor || tripEdit.has(inv))){ try { sessionStorage.removeItem("vi.inviteTrip"); } catch(_){} if (r.name !== "trip" || r.id !== inv){ location.hash = `#/v/${encodeURIComponent(inv)}`; return; } }
   if (r.name === "home") return renderHome(seq);
   if (r.name === "admin") return renderAdmin(r.id, seq);
   if (r.name === "appadmin") return renderAppAdmin();
-  if (r.name === "invite") return openInvite(r.email, seq);
+  if (r.name === "invite") return openInvite(r.email, seq, r.trip);
   return openTrip(r.id, seq, authChanged);
 }
 window.addEventListener("hashchange", () => route(false));
@@ -469,7 +482,7 @@ async function renderHome(seq){
     if (!trips.length && !$("seed-card")) el.innerHTML = `<div class="empty"><strong>Aucun voyage</strong>Crée le premier avec « Nouveau voyage ».</div>`;
   } else {
     $("home-sub").textContent = "Nos carnets de voyage, en direct";
-    const list = joined();
+    const list = [...[...tripEdit].filter(id => !joined().some(x => x.id === id)).map(id => ({id, title: id})), ...joined()];
     el.innerHTML = list.length ? list.map(t => tripCard(t)).join("") : "";
     // Rafraîchit titres et couvertures si l'accès est toujours valable.
     // Rafraîchit titres et couvertures si l'accès est toujours valable.
@@ -2232,7 +2245,43 @@ async function renderAdmin(id, seq){
   $("a-share").value = shareLink(id);
   $("a-code-new").value = "";
   loadCodes(); loadMembers();
+  $("te-panel").hidden = !globalEditor; setMsg("te-msg", ""); renderTripEditors();
 }
+/* Éditeurs d'un seul voyage (trips/{id}.editors) : ajoutés et invités par un éditeur de l'appli. */
+function renderTripEditors(){
+  const list = A.trip?.editors || [];
+  $("te-list").innerHTML = list.length ? list.map(e => `<li><span class="ed-av">${esc(initials(e))}</span><span class="ed-mail">${esc(e)}</span>
+    <button class="btn ghost" type="button" data-te-invite="${esc(e)}">Inviter</button><button class="btn ghost danger" type="button" data-te-del="${esc(e)}" aria-label="Retirer ${esc(e)}">Retirer</button></li>`).join("")
+    : `<li class="ed-empty">Personne pour l'instant.</li>`;
+}
+async function saveTripEditors(list){
+  list = [...new Set(list.map(s => s.trim().toLowerCase()).filter(emailOk))];
+  await setDoc(doc(db, "trips", A.id), { editors: list }, { merge: true });
+  A.trip.editors = list; renderTripEditors();
+  // Le propriétaire tient à jour la liste de ceux qui peuvent envoyer vidéos et photos HD (stockage).
+  if (isOwner()) try {
+    const all = (await getDocs(collection(db, "trips"))).docs.flatMap(d => d.data().editors || []);
+    await setDoc(doc(db, "config/editors"), { tripEmails: [...new Set(all)] }, { merge: true });
+  } catch(_){}
+}
+$("te-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const email = $("te-email").value.trim().toLowerCase();
+  if (!emailOk(email)) return setMsg("te-msg", "Cette adresse e-mail n'est pas valide.", "err");
+  try {
+    if (!(A.trip.editors || []).includes(email)) await saveTripEditors([...(A.trip.editors || []), email]);
+    $("te-email").value = ""; setMsg("te-msg", `${email} peut publier dans ce voyage. Envoie-lui l'invitation.`, "ok");
+    sendInvite(email, A.id, A.trip.title);
+  } catch(_){ setMsg("te-msg", "L'enregistrement a échoué. Réessaie.", "err"); }
+});
+$("te-list").addEventListener("click", async e => {
+  const inv = e.target.closest("[data-te-invite]"); if (inv) return sendInvite(inv.dataset.teInvite, A.id, A.trip.title);
+  const del = e.target.closest("[data-te-del]"); if (!del) return;
+  const email = del.dataset.teDel;
+  if (!confirm(`Retirer ${email} des éditeurs de ce voyage ?`)) return;
+  try { await saveTripEditors((A.trip.editors || []).filter(x => x !== email)); setMsg("te-msg", `${email} ne peut plus publier dans ce voyage.`, "ok"); }
+  catch(_){ setMsg("te-msg", "La modification a échoué. Réessaie.", "err"); }
+});
 async function loadCodes(){
   try { A.codes = (await getDocs(collection(db, `trips/${A.id}/codes`))).docs.map(d => d.id); }
   catch(_){ A.codes = []; }
@@ -2384,7 +2433,7 @@ $("v-save").onclick = async () => {
 /* =================================================================== */
 /* Administration de l'appli : éditeurs et stockage (propriétaire seul) */
 /* =================================================================== */
-const isOwner = () => isEditor && user?.email === OWNER_EMAIL;
+const isOwner = () => globalEditor && user?.email === OWNER_EMAIL;
 const emailOk = s => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
 function renderAppAdmin(){
   if (!isOwner()){ location.hash = "#/"; return; }
@@ -2404,10 +2453,10 @@ async function saveEditors(emails){
   emails = [...new Set([OWNER_EMAIL, ...emails.map(s => s.trim().toLowerCase()).filter(emailOk)])];
   await setDoc(doc(db, "config/editors"), {emails}); editorEmails = emails; renderEditors();
 }
-const inviteLink = email => `${location.origin}${location.pathname}#/editeur/${encodeURIComponent(email)}`;
-async function sendInvite(email){
-  const url = inviteLink(email);
-  const text = `Je t'invite à publier tes photos dans « ${APP} » 📸\nOuvre ce lien et connecte-toi avec ${email} (avec Google, ou en créant un mot de passe) :\n${url}`;
+const inviteLink = (email, trip) => `${location.origin}${location.pathname}#/editeur/${encodeURIComponent(email)}${trip ? "/" + encodeURIComponent(trip) : ""}`;
+async function sendInvite(email, trip, title){
+  const url = inviteLink(email, trip);
+  const text = `Je t'invite à publier tes photos ${trip ? `dans notre voyage « ${title || trip} »` : `dans « ${APP} »`} 📸\nOuvre ce lien et connecte-toi avec ${email} (avec Google, ou en créant un mot de passe) :\n${url}`;
   if (navigator.share){ try { await navigator.share({ title: APP, text }); return; } catch(err){ if (err?.name === "AbortError") return; } }
   try { await navigator.clipboard.writeText(text); toast("Invitation copiée : colle-la dans WhatsApp, SMS ou e-mail"); }
   catch(_){ prompt("Copie cette invitation :", text); }
@@ -2432,10 +2481,12 @@ $("ed-list").addEventListener("click", async e => {
   catch(_){ setMsg("ed-msg", "La modification a échoué. Réessaie.", "err"); }
 });
 /* Lien d'invitation : la connexion éditeur s'ouvre, l'adresse est déjà remplie. */
-async function openInvite(email, seq){
+async function openInvite(email, seq, trip){
   history.replaceState(null, "", "#/");
+  if (trip) try { sessionStorage.setItem("vi.inviteTrip", trip); } catch(_){}
+  if (trip && (globalEditor || tripEdit.has(trip))){ try { sessionStorage.removeItem("vi.inviteTrip"); } catch(_){} location.hash = `#/v/${encodeURIComponent(trip)}`; return; }
   await renderHome(seq);
-  if (isEditor){ toast("Tu es déjà connecté comme éditeur : tu peux ajouter des photos."); return; }
+  if (globalEditor){ toast("Tu es déjà connecté comme éditeur : tu peux ajouter des photos."); return; }
   openAccount(true);
   $("ac-email").value = email || "";
   setMsg("ac-login-msg", `Bienvenue ! Tu es invité(e) comme éditeur. Si ${email || "ton adresse"} est une adresse Gmail, touche « Continuer avec Google ». Sinon, choisis un mot de passe et touche « Créer mon compte » (puis confirme ton adresse avec le lien reçu par e-mail).`, "ok");

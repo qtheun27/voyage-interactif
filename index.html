@@ -176,6 +176,17 @@
       <div class="sheet-actions"><button class="btn primary" type="submit" id="a-save">Enregistrer</button></div>
     </form>
 
+    <section class="panel" id="te-panel" hidden>
+      <h2>Éditeurs de ce voyage</h2>
+      <p class="muted">Ils publient leurs photos et modifient ce voyage uniquement. Ajoute une adresse e-mail puis envoie l'invitation : elle se connecte avec Google, ou en créant un mot de passe.</p>
+      <ul class="ed-list" id="te-list"></ul>
+      <form class="ed-add" id="te-form" novalidate>
+        <input type="email" id="te-email" placeholder="adresse@exemple.com" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="email" aria-label="Adresse e-mail de l'éditeur de ce voyage">
+        <button class="btn primary" type="submit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>Ajouter et inviter</button>
+      </form>
+      <div class="msg" id="te-msg" hidden></div>
+    </section>
+
     <section class="panel">
       <h2>Partager</h2>
       <p class="muted">Un seul message avec le lien et le code : en touchant le lien, tes proches arrivent directement dans le carnet, sans rien taper.</p>
@@ -215,8 +226,8 @@
   </header>
   <main class="admin">
     <section class="panel" id="ed-panel">
-      <h2>Éditeurs</h2>
-      <p class="muted">Ils publient des photos et gèrent tous les voyages. Ajoute une adresse e-mail, puis envoie-lui l'invitation : elle se connecte avec Google, ou en créant un mot de passe.</p>
+      <h2>Éditeurs de tous les voyages</h2>
+      <p class="muted">Ils publient des photos et gèrent tous les voyages, et en créent de nouveaux. Pour un seul voyage, ajoute plutôt l'éditeur dans les réglages de ce voyage. Ajoute une adresse e-mail, puis envoie-lui l'invitation : elle se connecte avec Google, ou en créant un mot de passe.</p>
       <ul class="ed-list" id="ed-list"></ul>
       <form class="ed-add" id="ed-form" novalidate>
         <input type="email" id="ed-email" placeholder="adresse@exemple.com" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="email" aria-label="Adresse e-mail du nouvel éditeur">

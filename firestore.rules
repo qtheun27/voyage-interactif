@@ -26,8 +26,16 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/trips/$(tripId)/members/$(request.auth.uid));
     }
 
+    // Éditeur d'un seul voyage : son adresse est dans trips/{id}.editors (ajoutée par un éditeur de l'appli).
+    function viIsTripEditor(tripId) {
+      return viSignedInWithGoogle()
+        && request.auth.token.email in get(/databases/$(database)/documents/trips/$(tripId)).data.get('editors', []);
+    }
+    function viCanEdit(tripId) {
+      return viIsEditor() || viIsTripEditor(tripId);
+    }
     function viCanSee(tripId) {
-      return viIsMember(tripId) || viIsEditor();
+      return viIsMember(tripId) || viCanEdit(tripId);
     }
 
     // Profil d'un compte (photo choisie dans la galerie) : lisible et modifiable par son seul titulaire.
@@ -47,24 +55,33 @@ service cloud.firestore {
 
     // Réglages du stockage des vidéos (clé Backblaze) : jamais lisibles par les visiteurs.
     match /config/storage {
-      allow read: if viIsEditor();
+      allow read: if viIsEditor()
+        || (viSignedInWithGoogle()
+            && request.auth.token.email in get(/databases/$(database)/documents/config/editors).data.get('tripEmails', []));
       allow write: if viIsOwner();
     }
 
     match /trips/{tripId} {
-      allow get: if viIsMember(tripId) || viIsEditor();
-      allow list: if viIsEditor();
-      allow write: if viIsEditor();
+      allow get: if viIsMember(tripId) || viIsEditor()
+        || (viSignedInWithGoogle() && request.auth.token.email in resource.data.get('editors', []));
+      // Un éditeur du voyage retrouve ses voyages (requête « editors contient mon adresse »).
+      allow list: if viIsEditor()
+        || (viSignedInWithGoogle() && request.auth.token.email in resource.data.get('editors', []));
+      allow create, delete: if viIsEditor();
+      // L'éditeur d'un voyage le modifie, sauf la liste de ses éditeurs et son propriétaire.
+      allow update: if viIsEditor()
+        || (viSignedInWithGoogle() && request.auth.token.email in resource.data.get('editors', [])
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['editors', 'owner']));
 
       match /stops/{stopId} {
-        allow read: if viIsMember(tripId) || viIsEditor();
-        allow write: if viIsEditor();
+        allow read: if viCanSee(tripId);
+        allow write: if viCanEdit(tripId);
       }
 
       // Photos en grand (JPEG dans un champ Bytes, moins de 1 Mio), chargées à la demande.
       match /photos/{stopId} {
-        allow read: if viIsMember(tripId) || viIsEditor();
-        allow write: if viIsEditor();
+        allow read: if viCanSee(tripId);
+        allow write: if viCanEdit(tripId);
       }
 
       // Réactions : un document par photo, un champ par personne (uid -> « emoji|prénom »).
@@ -80,7 +97,7 @@ service cloud.firestore {
           && (!(request.auth.uid in request.resource.data)
               || (request.resource.data[request.auth.uid] is string
                   && request.resource.data[request.auth.uid].size() <= 80));
-        allow delete: if viIsEditor();
+        allow delete: if viCanEdit(tripId);
       }
 
       // Commentaires sur les étapes : jamais modifiés, supprimés par leur auteur ou un éditeur.
@@ -93,13 +110,13 @@ service cloud.firestore {
           && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000
           && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
           && request.resource.data.at == request.time;
-        allow delete: if viIsEditor() || (request.auth != null && resource.data.uid == request.auth.uid);
+        allow delete: if viCanEdit(tripId) || (request.auth != null && resource.data.uid == request.auth.uid);
       }
 
       // L'id du document est le code d'accès : jamais lisible ni listable par les visiteurs.
       match /codes/{code} {
-        allow read: if viIsEditor();
-        allow write: if viIsEditor();
+        allow read: if viCanEdit(tripId);
+        allow write: if viCanEdit(tripId);
       }
 
       match /members/{uid} {
@@ -110,7 +127,7 @@ service cloud.firestore {
           && request.resource.data.code.matches('^[A-Z0-9-]{4,40}$')
           && exists(/databases/$(database)/documents/trips/$(tripId)/codes/$(request.resource.data.code));
         allow get: if request.auth != null && request.auth.uid == uid;
-        allow read, delete: if viIsEditor();
+        allow read, delete: if viCanEdit(tripId);
       }
     }
     // ===== FIN VOYAGE INTERACTIF =====
