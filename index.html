@@ -45,6 +45,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         Nouveau voyage
       </button>
+      <a class="btn ghost" href="#/admin" id="btn-appadmin" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.9-3.6 3.4-5.5 6.5-5.5s5.6 1.9 6.5 5.5"/><path d="M17 8v6M14 11h6"/></svg>
+        Éditeurs et stockage
+      </a>
     </div>
     <div class="tcards" id="home-cards"></div>
     <form class="join" id="join-form" novalidate>
@@ -196,9 +200,34 @@
       <div class="sheet-actions"><button class="btn danger" type="button" id="a-kick">Déconnecter tous les visiteurs</button></div>
     </section>
 
-    <section class="panel" id="a-video-panel" hidden>
+  </main>
+</section>
+
+<!-- ============ Administration de l'appli (propriétaire) ============ -->
+<section class="screen" id="screen-appadmin" hidden>
+  <header class="top">
+    <a class="back" href="#/" aria-label="Retour"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a>
+    <div class="brand">
+      <h1>Administration</h1>
+      <div class="status">Pour toute l'appli et tous les voyages</div>
+    </div>
+    <div class="account" id="appadmin-account"></div>
+  </header>
+  <main class="admin">
+    <section class="panel" id="ed-panel">
+      <h2>Éditeurs</h2>
+      <p class="muted">Ils publient des photos et gèrent tous les voyages. Ajoute une adresse e-mail, puis envoie-lui l'invitation : elle se connecte avec Google, ou en créant un mot de passe.</p>
+      <ul class="ed-list" id="ed-list"></ul>
+      <form class="ed-add" id="ed-form" novalidate>
+        <input type="email" id="ed-email" placeholder="adresse@exemple.com" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="email" aria-label="Adresse e-mail du nouvel éditeur">
+        <button class="btn primary" type="submit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>Ajouter et inviter</button>
+      </form>
+      <div class="msg" id="ed-msg" hidden></div>
+    </section>
+
+    <section class="panel" id="a-video-panel">
       <h2>Vidéos et photos HD (Backblaze B2)</h2>
-      <p class="muted">Une fois branché, les vidéos (telles quelles) et les photos en grand (2560 px) partent sur ton seau Backblaze (10 Go gratuits) ; les miniatures restent dans Firestore. Ces réglages ne sont lisibles que par les éditeurs.</p>
+      <p class="muted">Une fois branché, les vidéos (telles quelles) et les photos en grand (2560 px) partent sur ton seau Backblaze (10 Go gratuits) ; les miniatures restent dans Firestore. Pour toute l'appli : ces réglages ne sont visibles que par toi.</p>
       <div class="grid2">
         <label class="f">Point d'accès S3 <small>ex. s3.eu-central-003.backblazeb2.com</small><input type="text" id="v-endpoint" autocapitalize="off" spellcheck="false"></label>
         <label class="f">Nom du seau<input type="text" id="v-bucket" autocapitalize="off" spellcheck="false"></label>
@@ -210,13 +239,6 @@
       <div class="sheet-actions"><button class="btn" type="button" id="v-test">Tester</button><button class="btn primary" type="button" id="v-save">Enregistrer</button></div>
     </section>
 
-    <section class="panel" id="a-editors-panel" hidden>
-      <h2>Éditeurs</h2>
-      <p class="muted">Adresses Google qui peuvent ajouter des photos et gérer tous les voyages. Une par ligne.</p>
-      <textarea id="a-editors" rows="3" spellcheck="false"></textarea>
-      <div class="msg" id="a-editors-msg" hidden></div>
-      <div class="sheet-actions"><button class="btn" type="button" id="a-editors-save">Enregistrer les éditeurs</button></div>
-    </section>
   </main>
 </section>
 
@@ -338,6 +360,7 @@
     <div class="ac-actions" id="ac-signed">
       <label class="btn">Changer ma photo<input type="file" id="ac-photo" accept="image/*" class="visually-hidden"></label>
       <button class="btn ghost" type="button" id="ac-photo-del" hidden>Reprendre la photo Google</button>
+      <a class="btn" id="ac-appadmin" href="#/admin" hidden>Administration de l'appli (éditeurs, stockage)</a>
       <button class="btn" type="button" id="ac-pw-open">Changer mon mot de passe</button>
       <button class="btn danger" type="button" data-action="signout">Se déconnecter</button>
     </div>
