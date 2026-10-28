@@ -726,3 +726,6 @@ body.storying .mapwrap::after,body.storying .mapwrap::before,body.storying .leaf
   body.storying .mapwrap{height:100svh}
   .st-body{max-width:760px;margin:0 auto}
 }
+.lb-img{flex:0 0 auto}
+.ns-skip{align-self:center;font-size:.85rem}
+#namesheet .sheet{gap:12px}
