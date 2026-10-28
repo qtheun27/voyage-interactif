@@ -16,7 +16,7 @@ import { buildJourney, estimatePosition, legField, MODES } from "./lib/journey.j
 import { loadPack, ICONS } from "./packs/index.js";
 
 const APP = "Mon carnet de voyages";
-const VERSION = "2026-10-28c";
+const VERSION = "2026-10-28d";
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const NDAY = 6;
@@ -567,13 +567,19 @@ $("nt-form").addEventListener("submit", async e => {
 /* =================================================================== */
 /* Accès avec code                                                     */
 /* =================================================================== */
-let gateTrip = null, linkCode = null, lastJoinErr = null;
+let gateTrip = null, linkCode = null, lastJoinErr = null, justJoined = null;
 /* Un blocage chez un visiteur est noté (étape, code d'erreur, navigateur) pour pouvoir le comprendre à distance. */
-function report(step, err, trip){
+// Envoyé directement (API REST), sans passer par la connexion en direct de Firestore qui peut être celle qui coince.
+async function report(step, err, trip){
   try {
-    if (!auth?.currentUser) return;
-    addDoc(collection(db, "diag"), { at: Date.now(), step, code: String(err?.code || err?.name || ""), msg: String(err?.message || err || "").slice(0, 500),
-      ua: navigator.userAgent.slice(0, 300), v: VERSION, trip: trip || "", uid: auth.currentUser.uid }).catch(() => {});
+    const u = auth?.currentUser; if (!u) return;
+    const tok = await u.getIdToken();
+    const S = v => ({ stringValue: String(v ?? "") });
+    const fields = { at: { integerValue: String(Date.now()) }, step: S(step), code: S(err?.code || err?.name || ""),
+      msg: S(String(err?.message || err || "").slice(0, 500)), ua: S(navigator.userAgent.slice(0, 300)), v: S(VERSION), trip: S(trip || ""), uid: S(u.uid) };
+    const base = emulators?.host ? `http://${emulators.host}:8080` : "https://firestore.googleapis.com";
+    await fetch(`${base}/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/diag`, {
+      method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${tok}` }, body: JSON.stringify({ fields }) });
   } catch(_){}
 }
 /* Entrer dans un voyage avec son code (visiteur, sans compte) : null si c'est bon, sinon le message à afficher. */
@@ -595,15 +601,17 @@ async function joinTrip(id, code){
       : "Impossible d'ouvrir le carnet. Vérifie la connexion internet puis réessaie.";
   } finally { gateBusy = false; }
 }
-async function showGate(id, msg){
+async function showGate(id, msg, why){
   gateTrip = id; document.title = APP;
+  // Retour imprévu à l'écran du code : noté, avec la raison, pour comprendre à distance.
+  if (why) report("écran du code", { code: why, message: `en ligne=${navigator.onLine} connecté=${!!auth?.currentUser} inscrit récemment=${justJoined === id}` }, id);
   // Arrivé par le lien partagé (avec le code) : on entre tout seul, sans afficher l'écran du code.
   if (!msg && linkCode?.id === id){
     const code = linkCode.code; linkCode = null;
     $("boot").hidden = false; $("boot-text").textContent = "Ouverture du carnet…";
     SCREENS.forEach(s => $(s).hidden = true);
     const err = await joinTrip(id, code);
-    if (!err) return openTrip(id, ++routeSeq, true);
+    if (!err){ justJoined = id; return openTrip(id, ++routeSeq, true); }
     msg = err;
   }
   show("screen-gate"); setMsg("gate-msg", msg || "", msg ? "err" : null);
@@ -618,7 +626,7 @@ $("gate-form").addEventListener("submit", async e => {
   $("gate-submit").disabled = false;
   $("gate-tech").textContent = `Version ${VERSION}${lastJoinErr ? ` · ${lastJoinErr.code || lastJoinErr.name || "erreur"}` : ""}`;
   if (err) return setMsg("gate-msg", err, "err");
-  setMsg("gate-msg", "");
+  setMsg("gate-msg", ""); justJoined = gateTrip;
   return openTrip(gateTrip, ++routeSeq, true);
 });
 
@@ -654,20 +662,25 @@ async function openTrip(id, seq, force){
   if (T.id === id && T.map && !force){ show("screen-trip"); setTimeout(() => T.map?.invalidateSize(), 0); return; }
   closeTrip();
   if (!user && auth.currentUser) user = auth.currentUser;
-  if (!user) return showGate(id);
+  if (!user) return showGate(id, "", "pas connecté");
   let snap;
   try { const c = await getDocFromCache(doc(db, "trips", id)); if (c.exists()) snap = c; } catch(_){}
-  if (!snap) try { snap = await getDoc(doc(db, "trips", id)); }
-  catch(err){
-    if (!isEditor) report("ouverture du voyage", err, id);
-    if (seq !== routeSeq) return;
-    if (err?.code === "permission-denied"){ return showGate(id); }
-    $("boot").hidden = false; $("boot-text").textContent = "Connexion impossible. Vérifie internet puis recharge la page."; return;
+  // Juste après l'inscription, le serveur peut mettre un instant à la voir : on réessaie avant de redemander le code.
+  for (let k = 0; !snap && k < (justJoined === id ? 4 : 1); k++){
+    if (k){ $("boot").hidden = false; $("boot-text").textContent = "Ouverture du carnet…"; await new Promise(r => setTimeout(r, 1200)); }
+    try { const s = await (k ? getDocFromServer : getDoc)(doc(db, "trips", id)); if (s.exists() || k === 3 || justJoined !== id) snap = s; }
+    catch(err){
+      if (justJoined === id && k < 3) continue;
+      if (!isEditor) report("ouverture du voyage", err, id);
+      if (seq !== routeSeq) return;
+      if (err?.code === "permission-denied"){ return showGate(id, "", "accès refusé"); }
+      $("boot").hidden = false; $("boot-text").textContent = "Connexion impossible. Vérifie internet puis recharge la page."; return;
+    }
   }
   if (seq !== routeSeq) return;
-  if (!snap.exists()){
+  if (!snap?.exists()){
     if (isEditor){ show("screen-home"); $("home-cards").innerHTML = `<div class="empty"><strong>Ce voyage n'existe pas encore</strong>${id === SEED.id ? `<button class="btn primary" type="button" id="seed-now" style="margin-top:10px">Créer « ${esc(SEED.title)} »</button>` : "Crée-le depuis l'accueil."}</div>`; $("seed-now")?.addEventListener("click", () => openNewTrip(SEED)); return; }
-    forget(id); return showGate(id);
+    forget(id); return showGate(id, "", snap ? "voyage introuvable" : "pas de réponse");
   }
   T.id = id; setTrip(snap.data());
   if (!isEditor) remember(id, {id, ...T.trip});
@@ -739,7 +752,7 @@ async function openTrip(id, seq, force){
 }
 function revoked(id){
   if (T.id !== id) return;
-  forget(id); closeTrip(); showGate(id, "Ton accès à ce voyage a été retiré. Entre à nouveau le code.");
+  forget(id); closeTrip(); showGate(id, "Ton accès à ce voyage a été retiré. Entre à nouveau le code.", "accès retiré");
 }
 function setTrip(t){
   T.trip = t;
