@@ -1,7 +1,7 @@
 /* Mon carnet de voyages : plusieurs voyages, suivis sans compte avec un code d'accès ; photos ajoutées par les éditeurs. */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInAnonymously, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut,
-  connectAuthEmulator, signInWithCredential, EmailAuthProvider, linkWithCredential, reauthenticateWithCredential, reauthenticateWithPopup,
+  connectAuthEmulator, signInWithCredential, EmailAuthProvider, linkWithCredential, linkWithPopup, updateProfile, reauthenticateWithCredential, reauthenticateWithPopup,
   updatePassword, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getDocFromCache, getFirestore, query, where, Timestamp, doc, getDoc, getDocFromServer, getDocs, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collection, onSnapshot, writeBatch, serverTimestamp, getCountFromServer, connectFirestoreEmulator, Bytes }
@@ -289,7 +289,7 @@ const hasAccount = () => isGoogle(user);
 const hasPassword = () => !!user?.providerData.some(p => p.providerId === "password");
 function storedName(){ try { return localStorage.getItem("vi.name") || ""; } catch(_){ return ""; } }
 function myName(){
-  if (hasAccount()) return (user.displayName || "").trim() || String(user.email || "").split("@")[0];
+  if (user && !user.isAnonymous) return (user.displayName || "").trim() || String(user.email || "").split("@")[0];
   return storedName();
 }
 const initials = n => String(n || "").trim().split(/[\s.@_-]+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
@@ -440,19 +440,85 @@ $("ac-forgot").onclick = async () => {
 };
 
 /* Prénom des visiteurs, demandé une fois pour les réactions et les commentaires. */
-let nameWait = null;
+/* Pour réagir ou commenter : un compte (Google ou e-mail), pour qu'on voie qui parle.
+   Le compte est relié au visiteur anonyme (même identifiant) : il garde son accès au voyage et reste où il était.
+   « Continuer sans compte » reste possible, avec juste un prénom. */
+let nameWait = null, nsLogin = false;
+const noAccount = () => { try { return localStorage.getItem("vi.noAccount") === "1"; } catch(_){ return false; } };
 function askName(){
-  const n = myName(); if (n) return Promise.resolve(n);
-  $("ns-name").value = ""; $("namesheet").hidden = false; setTimeout(() => $("ns-name").focus(), 50);
+  const n = myName();
+  if (user && !user.isAnonymous && n) return Promise.resolve(n);
+  if (n && noAccount()) return Promise.resolve(n);
+  nsLogin = false; nsMode(); setMsg("ns-msg", "");
+  $("ns-name").value = storedName(); $("ns-email").value = ""; $("ns-pass").value = "";
+  $("namesheet").hidden = false;
   return new Promise(r => nameWait = r);
 }
+function nsMode(){
+  $("ns-first-l").hidden = nsLogin;
+  $("ns-submit").textContent = nsLogin ? "Me connecter" : "Créer mon compte";
+  $("ns-mode").textContent = nsLogin ? "Je n'ai pas encore de compte" : "J'ai déjà un compte";
+  $("ns-pass").autocomplete = nsLogin ? "current-password" : "new-password"; $("ns-pass-hint").hidden = nsLogin;
+}
+$("ns-mode").onclick = () => { nsLogin = !nsLogin; nsMode(); setMsg("ns-msg", ""); };
 function closeName(v){ $("namesheet").hidden = true; const r = nameWait; nameWait = null; r?.(v || ""); }
 document.querySelectorAll('[data-close="namesheet"]').forEach(b => b.onclick = () => closeName(""));
-$("ns-form").addEventListener("submit", e => {
-  e.preventDefault();
-  const v = $("ns-name").value.trim().slice(0, 40); if (!v) return $("ns-name").focus();
-  try { localStorage.setItem("vi.name", v); } catch(_){}
+$("ns-skip").onclick = () => {
+  const v = $("ns-name").value.trim().slice(0, 40) || storedName();
+  if (!v){ nsLogin = false; nsMode(); setMsg("ns-msg", "Écris au moins ton prénom.", "err"); $("ns-name").focus(); return; }
+  try { localStorage.setItem("vi.name", v); localStorage.setItem("vi.noAccount", "1"); } catch(_){}
   renderAccounts(); closeName(v);
+};
+/* Le code de chaque voyage rejoint, pour y rentrer seul après une connexion à un compte existant. */
+function rememberCode(id, code){ try { const m = JSON.parse(localStorage.getItem("vi.codes") || "{}"); m[id] = code; localStorage.setItem("vi.codes", JSON.stringify(m)); } catch(_){} }
+function storedCode(id){ try { return JSON.parse(localStorage.getItem("vi.codes") || "{}")[id] || ""; } catch(_){ return ""; } }
+/* Passer à un autre compte (déjà existant) : on rejoint le voyage avec le code gardé, puis on rouvre la même photo. */
+async function switchAccount(signIn){
+  const trip = T.id, keep = lbCurrentId();
+  gateBusy = true;
+  try {
+    await signIn(); user = auth.currentUser; await refreshRole();
+    setEditContext(trip);
+    if (trip && !isEditor){ const code = storedCode(trip); if (code) await joinTrip(trip, code); }
+    if (trip){ await openTrip(trip, ++routeSeq, true); if (keep) setTimeout(() => openPhoto(keep), 600); }
+  } finally { setTimeout(() => { gateBusy = false; }, 1500); }
+}
+const nsDone = () => { renderAccounts(); closeName(myName() || storedName()); };
+$("ns-google").onclick = async () => {
+  setMsg("ns-msg", "");
+  try {
+    try { await linkWithPopup(auth.currentUser, new GoogleAuthProvider()); await auth.currentUser.reload(); user = auth.currentUser; }
+    catch(err){
+      if (err?.code !== "auth/credential-already-in-use") throw err;
+      const cred = GoogleAuthProvider.credentialFromError(err);
+      await switchAccount(() => signInWithCredential(auth, cred));
+    }
+    loadProfile(); nsDone();
+  } catch(err){ if (err?.code !== "auth/popup-closed-by-user" && err?.code !== "auth/cancelled-popup-request") setMsg("ns-msg", authErr(err), "err"); }
+};
+$("ns-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const first = $("ns-name").value.trim().slice(0, 40), email = $("ns-email").value.trim(), pass = $("ns-pass").value;
+  if (!email || !pass) return setMsg("ns-msg", "Indique ton e-mail et ton mot de passe.", "err");
+  $("ns-submit").disabled = true; setMsg("ns-msg", nsLogin ? "Connexion…" : "Création du compte…");
+  try {
+    if (nsLogin){
+      await switchAccount(() => signInWithEmailAndPassword(auth, email, pass));
+    } else {
+      if (!first){ $("ns-submit").disabled = false; return setMsg("ns-msg", "Écris ton prénom.", "err"); }
+      if (pass.length < 8){ $("ns-submit").disabled = false; return setMsg("ns-msg", "Choisis un mot de passe de 8 caractères au moins.", "err"); }
+      await linkWithCredential(auth.currentUser, EmailAuthProvider.credential(email, pass));
+      await updateProfile(auth.currentUser, { displayName: first });
+      user = auth.currentUser;
+      try { localStorage.setItem("vi.name", first); } catch(_){}
+      sendEmailVerification(auth.currentUser).catch(() => {});
+    }
+    nsDone();
+  } catch(err){
+    setMsg("ns-msg", err?.code === "auth/email-already-in-use" || err?.code === "auth/credential-already-in-use"
+      ? "Cette adresse a déjà un compte : touche « J'ai déjà un compte »." : authErr(err), "err");
+  }
+  $("ns-submit").disabled = false;
 });
 function tripCard(t, count){
   const status = t.status === "terminé" ? '<span class="pill done">Terminé</span>' : t.status ? '<span class="pill live">En cours</span>' : "";
@@ -622,28 +688,30 @@ async function report(step, err, trip){
 async function joinTrip(id, code){
   const wrong = `Ce code n'est pas le bon. Vérifie-le auprès de ${OWNER_NAME}.`;
   if (code.length < 4) return wrong;
-  gateBusy = true;
+  const wasBusy = gateBusy; gateBusy = true;
   try {
     if (!auth.currentUser) await signInAnonymously(auth);
     // La connexion vient d'aboutir : on n'attend pas l'événement de Firebase (il peut arriver après).
     user = auth.currentUser;
     const ref = doc(db, `trips/${id}/members/${user.uid}`);
     await setDoc(ref, { code, joinedAt: serverTimestamp() });
+    rememberCode(id, code);
     return null;
   } catch(err){
     lastJoinErr = err; report("entrée", err, id);
     return err?.code === "permission-denied" ? wrong
       : err?.code === "auth/admin-restricted-operation" || err?.code === "auth/operation-not-allowed" ? "L'accès visiteur n'est pas encore activé (connexion anonyme dans Firebase)."
       : "Impossible d'ouvrir le carnet. Vérifie la connexion internet puis réessaie.";
-  } finally { gateBusy = false; }
+  } finally { gateBusy = wasBusy; }
 }
 async function showGate(id, msg, why){
   gateTrip = id; document.title = APP;
   // Retour imprévu à l'écran du code : noté, avec la raison, pour comprendre à distance.
   if (why) report("écran du code", { code: why, message: `en ligne=${navigator.onLine} connecté=${!!auth?.currentUser} inscrit récemment=${justJoined === id}` }, id);
-  // Arrivé par le lien partagé (avec le code) : on entre tout seul, sans afficher l'écran du code.
-  if (!msg && linkCode?.id === id){
-    const code = linkCode.code; linkCode = null;
+  // Arrivé par le lien partagé (avec le code), ou code déjà utilisé sur ce téléphone : on entre tout seul.
+  const auto = !msg && (linkCode?.id === id ? linkCode.code : storedCode(id));
+  if (auto){
+    const code = auto; linkCode = null;
     $("boot").hidden = false; $("boot-text").textContent = "Ouverture du carnet…";
     SCREENS.forEach(s => $(s).hidden = true);
     const err = await joinTrip(id, code);
