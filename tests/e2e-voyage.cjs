@@ -163,7 +163,7 @@ const txt = s => s.replace(/\s+/g, ' ').trim();
   const v = await vc.newPage();
   v.on('pageerror', e => errs.push('visiteur : ' + e.message));
   // Lien partagé avec le code dedans : on arrive dans le carnet sans rien taper
-  await v.goto('http://127.0.0.1:8000/#/v/malte-2026/c/MALTE-VOYAGE');
+  await v.goto('http://127.0.0.1:8000/?v=malte-2026&c=malte-voyage');
   await v.waitForSelector('#hero:not([hidden])', { timeout: 15000 });
   await v.waitForTimeout(1500);
   log('accueil visiteur :', txt(await v.textContent('#hero')), '| adresse sans le code :', await v.evaluate(() => location.hash));

@@ -17,7 +17,7 @@ Des carnets de voyage illustrés : une carte nautique du pays, les photos placé
 2. **GitHub Pages** : servi depuis la branche `gh-pages`, recopiée automatiquement depuis `main` (`.github/workflows/pages.yml`).
 3. Ouvrir `https://qtheun27.github.io/voyage-interactif/`, cliquer sur **Je suis éditeur** et se connecter avec `q.theuninck@gmail.com`.
 4. Sur l'accueil, cliquer sur **Créer « Notre voyage à Malte »** : choisir les dates et le **code d'accès**, puis créer.
-5. Réglages du voyage > **Envoyer le lien et le code** : un seul message, le lien `#/v/{voyage}/c/{CODE}` fait entrer directement (le code est retiré de l'adresse aussitôt).
+5. Réglages du voyage > **Envoyer le lien et le code** : un seul message, le lien `?v={voyage}&c={CODE}` fait entrer directement, sans écran de code (le code est retiré de l'adresse aussitôt ; l'ancien format `#/v/{voyage}/c/{CODE}` marche aussi).
 
 ## Règles
 
