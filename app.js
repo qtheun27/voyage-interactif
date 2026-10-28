@@ -791,8 +791,7 @@ async function buildMap(){
   T.home = home;
   if (home) map.fitBounds(home, {padding:[8,8]}); else map.setView([45, 10], 4);
   map.createPane("base").style.zIndex = 150;
-  L.control.zoom({position:"bottomleft"}).addTo(map);
-  L.control.scale({position:"bottomleft", imperial:false, maxWidth:110}).addTo(map);
+  // Pas de boutons ni d'échelle : la carte se lit comme une illustration, on zoome avec les doigts.
   map.attributionControl.setPrefix(false);
   if (country) map.attributionControl.addAttribution('<a href="https://www.geoboundaries.org" target="_blank" rel="noopener">geoBoundaries</a> · Natural Earth');
   map.attributionControl.addAttribution('© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>');
@@ -1015,31 +1014,13 @@ function watchReading(){
 }
 function followReading(id){
   if (id === readId || S.on || !$("lb").hidden || dragging() || !T.J || picking) return;
-  if (innerWidth < 900 && !document.body.classList.contains("reading")) return;
+  if (innerWidth < 900) return;      // téléphone : la carte reste en haut de page, elle ne suit pas la lecture
   const e = T.entries.find(x => x.id === id); if (!e) return;
   readId = id; T.active = id;
   $("list").querySelectorAll("li.active").forEach(x => x.classList.remove("active"));
   $("list").querySelector(`[data-entry="${CSS.escape(id)}"]`)?.classList.add("active");
   renderMap(false); flyToEntry(e);
 }
-/* Téléphone : en descendant dans le carnet, la carte reste en haut, plus petite (et suit la lecture). */
-(() => {
-  let on = false, raf = 0;
-  const check = () => {
-    raf = 0;
-    const want = innerWidth < 900 && T.view === "carnet" && !!T.J?.stops.length && !$("screen-trip").hidden && !S.on
-      && (on ? scrollY > 60 : scrollY > $("mapwrap").offsetHeight * .7);
-    if (want === on) return;
-    const h0 = $("mapwrap").offsetHeight;
-    on = want; document.body.classList.toggle("reading", on);
-    document.documentElement.style.setProperty("--hh", $("screen-trip").querySelector("header.top").offsetHeight + "px");
-    scrollBy(0, $("mapwrap").offsetHeight - h0);     // le texte ne saute pas quand la carte change de taille
-    if (!on) readId = null;
-    T.map?.invalidateSize();
-  };
-  addEventListener("scroll", () => { raf ||= requestAnimationFrame(check); }, {passive: true});
-  addEventListener("resize", () => { raf ||= requestAnimationFrame(check); });
-})();
 $("list").addEventListener("click", e => { const c = e.target.closest("[data-day-open]"); if (c){ const l = visibleEntries().filter(x => x.day === +c.dataset.dayOpen && x.items.length); if (l.length) openEntry(l[0].id, true); } });
 
 /* La photo du chapitre en grand (miniature d'abord, puis l'image en grand). */
@@ -2101,28 +2082,21 @@ function buildFrames(){
       if (st.length) frames.push({chapter:true, e: st[0], day: e.day, cover: dayCover(T.entries.filter(x => x.day === e.day)), dur: 3400});
     }
     const its = pick(e.items.filter(x => x.hasPhoto), e.kind === "leg" ? 4 : 6);
+    const vdur = it => Math.min(30, it.video.duration || 10) * 1000 + 400;
+    // Entre les photos, la carte en plein écran : le trajet se dessine, ou la carte se pose sur l'étape suivante.
     if (e.kind === "leg"){
-      if (its.length) its.forEach(it => frames.push({e, it, dur: it.video ? Math.min(30, it.video.duration || 10) * 1000 + 400 : 2800 + Math.min(2500, (it.caption || "").length * 35)}));
-      else frames.push({e, it:null, dur: e.mode === "plane" ? 4500 : Math.min(4000, 1800 + e.km * 80)});
-    } else if (its.length){
-      its.forEach((it, i) => frames.push({e, it, dur: it.video ? Math.min(30, it.video.duration || 10) * 1000 + 400 : 3200 + (i === 0 && e.caption ? Math.min(3500, e.caption.length * 40) : 0)}));
-    } else frames.push({e, it:null, dur: 3200 + Math.min(3500, (e.caption || "").length * 40)});
-  });
-  // Pour animer le trajet : position de chaque image dans son trajet
-  frames.forEach((f, i) => {
-    if (f.e.kind !== "leg" || f.chapter) return;
-    const same = frames.filter(x => x.e === f.e && !x.chapter);
-    f.legTotal = same.reduce((s, x) => s + x.dur, 0);
-    f.legOffset = same.slice(0, same.indexOf(f)).reduce((s, x) => s + x.dur, 0);
+      frames.push({e, it:null, map:true, travel:true, dur: e.mode === "plane" ? 5200 : Math.max(2600, Math.min(4800, 2200 + e.km * 70))});
+      its.forEach(it => frames.push({e, it, dur: it.video ? vdur(it) : 2800 + Math.min(2500, (it.caption || "").length * 35)}));
+    } else {
+      frames.push({e, it:null, map:true, dur: its.length ? 2000 : 3200 + Math.min(3500, (e.caption || "").length * 40)});
+      its.forEach((it, i) => frames.push({e, it, dur: it.video ? vdur(it) : 3200 + (i === 0 && e.caption ? Math.min(3500, e.caption.length * 40) : 0)}));
+    }
   });
   frames.push({end:true, dur:Infinity});
   return frames;
 }
-function storyPad(){
-  const r = $("story").getBoundingClientRect(), m = $("map").getBoundingClientRect();
-  if (innerWidth >= 900) return {paddingTopLeft:[Math.max(0, r.right - m.left) + 40, 50], paddingBottomRight:[50, 50]};
-  return {paddingTopLeft:[30, 70], paddingBottomRight:[30, Math.max(0, m.bottom - r.top) + 40]};
-}
+// La carte occupe tout l'écran ; le titre et les boutons sont en bas.
+function storyPad(){ return {paddingTopLeft:[40, 70], paddingBottomRight:[40, Math.min(260, innerHeight * .3)]}; }
 function startStory(){
   if (!T.entries.length) return;
   closeLb();
@@ -2184,6 +2158,7 @@ function drawStory(){
     return;
   }
   $("story").classList.toggle("is-chapter", !!f.chapter);
+  if (f.chapter || f.end) $("story").classList.remove("is-map");
   if (f.chapter){
     const d = f.day, st = T.entries.filter(x => x.day === d && x.kind === "stop"), route = [...new Set(st.map(s => s.place).filter(Boolean))];
     const way = route.length > 4 ? [...route.slice(0, 2), "…", route[route.length - 1]] : route;
@@ -2197,6 +2172,7 @@ function drawStory(){
     $("st-bar").innerHTML = ""; $("st-count").textContent = "";
     return;
   }
+  $("story").classList.toggle("is-map", !!f.map);
   const e = f.e, frames = S.frames.filter(x => x.e === e && !x.chapter), idx = frames.indexOf(f);
   $("story").style.setProperty("--dc", dc(e.day));
   $("st-kicker").textContent = `${dayName(e.day)} · ${T.F.full.format(new Date(f.it ? f.it.at : e.at))}`;
@@ -2212,11 +2188,12 @@ function drawStory(){
       vid.onended = () => { if (S.on && S.frames[S.k]?.it === it) storyGo(S.k + 1); };
       fullPhoto(tripId, it.id).then(u => { if (u && vid.isConnected) vid.poster = u; });
     } else {
-      $("st-media").innerHTML = `<img class="kb k${S.k % 4}" src="${esc(it.thumbUrl || "")}" alt="" draggable="false" style="--kbdur:${(f.dur + 800) / 1000}s">`;
-      fullPhoto(tripId, it.id).then(u => { const im = $("st-media").querySelector("img"); if (u && im && S.on && S.frames[S.k]?.it === it) im.src = u; });
+      // Photo entière au centre, la même en flou derrière pour remplir l'écran.
+      $("st-media").innerHTML = `<div class="st-bg" style="background-image:url('${esc(it.thumbUrl || "")}')"></div><img class="kb fit k${S.k % 4}" src="${esc(it.thumbUrl || "")}" alt="" draggable="false" style="--kbdur:${(f.dur + 800) / 1000}s">`;
+      fullPhoto(tripId, it.id).then(u => { const im = $("st-media").querySelector("img.kb"); if (u && im && S.on && S.frames[S.k]?.it === it) im.src = u; });
     }
   } else {
-    $("st-media").innerHTML = `<div class="st-illu ${e.kind === "leg" ? "m-" + e.mode : ""}">${e.kind === "leg" ? modeIcon(e.mode) : pinSvg}</div>`;
+    $("st-media").innerHTML = "";                 // la carte, derrière, est le décor
   }
   $("st-bar").innerHTML = frames.map((x, i) => `<i class="${i < idx ? "done" : ""}"><b></b></i>`).join("");
   const ents = [...new Set(S.frames.filter(x => !x.end).map(x => x.e))];
@@ -2233,8 +2210,8 @@ function storyTick(now){
   if (!f.end){
     const p = Math.min(1, S.t / f.dur);
     const seg = $("st-bar").children[S.frames.filter(x => x.e === f.e).indexOf(f)]?.firstChild; if (seg) seg.style.width = `${p * 100}%`;
-    if (f.e.kind === "leg" && S.traveller){
-      const raw = Math.min(1, (f.legOffset + S.t) / f.legTotal), ease = raw < .5 ? 2*raw*raw : 1 - Math.pow(-2*raw + 2, 2) / 2;
+    if (f.travel && S.traveller){
+      const raw = Math.min(1, S.t / f.dur), ease = raw < .5 ? 2*raw*raw : 1 - Math.pow(-2*raw + 2, 2) / 2;
       const path = f.e.path, kf = ease * (path.length - 1), k0 = Math.floor(kf), k1 = Math.min(path.length - 1, k0 + 1), fr = kf - k0;
       const pos = [path[k0][0] + (path[k1][0] - path[k0][0]) * fr, path[k0][1] + (path[k1][1] - path[k0][1]) * fr];
       S.traveller.setLatLng(pos); S.trace?.setLatLngs([...path.slice(0, k0 + 1), pos]);
