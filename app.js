@@ -4,7 +4,7 @@ import { getAuth, onAuthStateChanged, signInAnonymously, signInWithPopup, signIn
   connectAuthEmulator, signInWithCredential, EmailAuthProvider, linkWithCredential, reauthenticateWithCredential, reauthenticateWithPopup,
   updatePassword, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getDocFromCache, getFirestore, query, where, doc, getDoc, getDocFromServer, getDocs, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collection, onSnapshot, writeBatch, serverTimestamp, getCountFromServer, connectFirestoreEmulator, Bytes }
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getDocFromCache, getFirestore, query, where, Timestamp, doc, getDoc, getDocFromServer, getDocs, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collection, onSnapshot, writeBatch, serverTimestamp, getCountFromServer, connectFirestoreEmulator, Bytes }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { firebaseConfig, OWNER_EMAIL, OWNER_NAME, emulators } from "./firebase-config.js";
 import { toLocalInput, fromLocalInput } from "./lib/time.js";
@@ -16,7 +16,7 @@ import { buildJourney, estimatePosition, legField, MODES } from "./lib/journey.j
 import { loadPack, ICONS } from "./packs/index.js";
 
 const APP = "Mon carnet de voyages";
-const VERSION = "2026-10-28d";
+const VERSION = "2026-10-28e";
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const NDAY = 6;
@@ -239,9 +239,9 @@ function fullPhoto(tripId, stopId){
   const k = `${tripId}/${stopId}`;
   const url = T.id === tripId ? T.photos.find(x => x.id === stopId)?.photoUrl : null;
   if (url && !fullLoads.has(k)) fullLoads.set(k, new Promise(res => { const im = new Image(); im.onload = () => res(url); im.onerror = () => { fullLoads.delete(k); res(null); }; im.src = url; }));
-  if (!fullLoads.has(k)) fullLoads.set(k, getDoc(doc(db, `trips/${tripId}/photos/${stopId}`))
-    .then(s => s.exists() ? imgUrl("full:" + k, s.data().data) : null)
-    .catch(() => { fullLoads.delete(k); return null; }));
+  if (!fullLoads.has(k)) fullLoads.set(k, (T.rest ? Promise.resolve(null) : getDoc(doc(db, `trips/${tripId}/photos/${stopId}`)).then(s => s.exists() ? s.data().data : null).catch(() => null))
+    .then(async b => b || (!isEditor && auth.currentUser ? (await restGet(`trips/${tripId}/photos/${stopId}`).catch(() => null))?.data?.data : null))
+    .then(b => b ? imgUrl("full:" + k, b) : (fullLoads.delete(k), null)));
   return fullLoads.get(k);
 }
 
@@ -569,6 +569,42 @@ $("nt-form").addEventListener("submit", async e => {
 /* =================================================================== */
 let gateTrip = null, linkCode = null, lastJoinErr = null, justJoined = null;
 /* Un blocage chez un visiteur est noté (étape, code d'erreur, navigateur) pour pouvoir le comprendre à distance. */
+/* ---------- Lecture de secours par l'API REST de Firestore ----------
+   Certains navigateurs (Brave sur iPhone, par exemple) laissent passer les écritures mais pas la connexion en direct :
+   le voyage y paraît « introuvable ». On lit alors les mêmes documents par l'API REST, avec le même compte visiteur,
+   donc avec les mêmes règles d'accès. */
+const restBase = () => `${emulators?.host ? `http://${emulators.host}:8080` : "https://firestore.googleapis.com"}/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents`;
+function fromRest(v){
+  if (!v) return null;
+  if ("stringValue" in v) return v.stringValue;
+  if ("integerValue" in v) return Number(v.integerValue);
+  if ("doubleValue" in v) return Number(v.doubleValue);
+  if ("booleanValue" in v) return v.booleanValue;
+  if ("nullValue" in v) return null;
+  if ("timestampValue" in v) return Timestamp.fromDate(new Date(v.timestampValue));
+  if ("bytesValue" in v) return Bytes.fromBase64String(v.bytesValue);
+  if ("mapValue" in v) return Object.fromEntries(Object.entries(v.mapValue.fields || {}).map(([k, x]) => [k, fromRest(x)]));
+  if ("arrayValue" in v) return (v.arrayValue.values || []).map(fromRest);
+  if ("referenceValue" in v) return v.referenceValue;
+  if ("geoPointValue" in v) return v.geoPointValue;
+  return null;
+}
+const restDoc = d => ({ id: d.name.split("/").pop(), data: Object.fromEntries(Object.entries(d.fields || {}).map(([k, x]) => [k, fromRest(x)])) });
+async function restFetch(url){
+  const tok = await auth.currentUser.getIdToken();
+  const r = await fetch(url, { headers: { authorization: `Bearer ${tok}` } });
+  if (r.status === 404) return null;
+  if (!r.ok) throw Object.assign(new Error(`REST ${r.status}`), { code: r.status === 403 ? "permission-denied" : "unavailable" });
+  return r.json();
+}
+async function restGet(path){ const j = await restFetch(`${restBase()}/${path}`); return j ? restDoc(j) : null; }
+async function restList(path){
+  const out = []; let tok = "";
+  do { const j = await restFetch(`${restBase()}/${path}?pageSize=300${tok ? `&pageToken=${encodeURIComponent(tok)}` : ""}`);
+    (j?.documents || []).forEach(d => out.push(restDoc(d))); tok = j?.nextPageToken || ""; } while (tok);
+  return out;
+}
+
 // Envoyé directement (API REST), sans passer par la connexion en direct de Firestore qui peut être celle qui coince.
 async function report(step, err, trip){
   try {
@@ -635,7 +671,7 @@ $("gate-form").addEventListener("submit", async e => {
 /* =================================================================== */
 const T = { id:null, trip:null, tz:"UTC", F:null, pack:null, land:null, map:null, layers:null, styles:null, mapStyle:"paysage",
   home:null, overview:false, view:"carnet", unsubs:[], photos:[], J:null, entries:[], flat:[], filterDay:null, active:null,
-  loaded:false, autoNames:{}, mine:new Set(), reacts:new Map(), comments:[] };
+  loaded:false, autoNames:{}, mine:new Set(), reacts:new Map(), comments:[], rest:false };
 
 function makeFmts(tz){
   return {
@@ -673,11 +709,19 @@ async function openTrip(id, seq, force){
       if (justJoined === id && k < 3) continue;
       if (!isEditor) report("ouverture du voyage", err, id);
       if (seq !== routeSeq) return;
+      if (!isEditor) break;                        // le secours REST ci-dessous tranche
       if (err?.code === "permission-denied"){ return showGate(id, "", "accès refusé"); }
       $("boot").hidden = false; $("boot-text").textContent = "Connexion impossible. Vérifie internet puis recharge la page."; return;
     }
   }
   if (seq !== routeSeq) return;
+  // Voyage « introuvable » pour un visiteur : on vérifie par l'API REST avant de redemander le code.
+  let viaRest = false;
+  if (!snap?.exists() && !isEditor){
+    try { const r = await restGet(`trips/${id}`); if (r){ snap = { exists: () => true, data: () => r.data }; viaRest = true; report("secours REST", { code: "voyage lu par REST" }, id); } }
+    catch(err){ report("secours REST", err, id); }
+    if (seq !== routeSeq) return;
+  }
   if (!snap?.exists()){
     if (isEditor){ show("screen-home"); $("home-cards").innerHTML = `<div class="empty"><strong>Ce voyage n'existe pas encore</strong>${id === SEED.id ? `<button class="btn primary" type="button" id="seed-now" style="margin-top:10px">Créer « ${esc(SEED.title)} »</button>` : "Crée-le depuis l'accueil."}</div>`; $("seed-now")?.addEventListener("click", () => openNewTrip(SEED)); return; }
     forget(id); return showGate(id, "", snap ? "voyage introuvable" : "pas de réponse");
@@ -687,6 +731,34 @@ async function openTrip(id, seq, force){
   show("screen-trip");
   // La carte (fonds GeoJSON) et les photos se chargent en même temps.
   const mapReady = buildMap();
+  // Lecture par REST (mode secours) : tout le carnet, puis une mise à jour par minute.
+  const restSync = async () => {
+    if (T.id !== id) return;
+    try {
+      const [tr, stops, reacts, comments] = await Promise.all([restGet(`trips/${id}`), restList(`trips/${id}/stops`),
+        restList(`trips/${id}/reactions`).catch(() => []), restList(`trips/${id}/comments`).catch(() => [])]);
+      if (T.id !== id) return;
+      if (tr) setTrip(tr.data);
+      T.reacts = new Map(reacts.map(x => [x.id, x.data]));
+      T.comments = comments.map(x => ({id: x.id, ...x.data})).sort((a,b) => (a.at?.toMillis?.() ?? Infinity) - (b.at?.toMillis?.() ?? Infinity));
+      const isFirst = !T.loaded;
+      T.photos = stops.map(x => ({id: x.id, ...x.data, thumbUrl: imgUrl("thumb:" + x.id, x.data.thumb), hasPhoto: !!x.data.hasPhoto}))
+        .filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng) && Number.isFinite(s.at));
+      T.loaded = true;
+      await mapReady; if (T.id !== id) return;
+      render(isFirst); if (isFirst) maybeHero();
+    } catch(err){ report("secours REST (photos)", err, id); if (err?.code === "permission-denied") revoked(id); }
+  };
+  T.restSync = restSync;
+  const startRest = () => {
+    if (T.rest) return; T.rest = true;
+    restSync();
+    const timer = setInterval(() => document.visibilityState === "visible" && restSync(), 60000);
+    T.unsubs.push(() => { clearInterval(timer); T.rest = false; });
+  };
+  if (viaRest) startRest();
+  // Visiteur dont la connexion en direct ne livre rien en 8 s : même secours.
+  else if (!isEditor){ const t = setTimeout(() => { if (T.id === id && !T.loaded){ report("secours REST", { code: "photos non reçues en 8 s" }, id); startRest(); } }, 8000); T.unsubs.push(() => clearTimeout(t)); }
   T.unsubs.push(onSnapshot(doc(db, "trips", id), s => {
     if (!s.exists()) return;
     const prevTz = T.tz; setTrip(s.data());
@@ -696,6 +768,7 @@ async function openTrip(id, seq, force){
   let first = true, fromCache = false;
   T.unsubs.push(onSnapshot(collection(db, `trips/${id}/stops`), {includeMetadataChanges: true}, snap => {
     // Après un affichage depuis le cache, les photos arrivées entre-temps ne sont pas annoncées une à une.
+    if (T.rest) return;
     const changes = snap.docChanges();
     if (!first && !changes.length){ fromCache = snap.metadata.fromCache; return; }   // seulement « synchronisé avec le serveur »
     const added = first || fromCache ? [] : changes.filter(c => c.type === "added").map(c => c.doc.id).filter(x => !T.mine.has(x));
@@ -1265,6 +1338,7 @@ $("lb-c-form").addEventListener("submit", async e => {
   try {
     await addDoc(collection(db, `trips/${T.id}/comments`), { photoId: f.e.items[0].id, text, name: name.slice(0, 40), uid: auth.currentUser.uid, at: serverTimestamp() });
     $("lb-c-text").value = ""; growText();
+    if (T.rest) T.restSync?.();
   } catch(_){ toast("Ton commentaire n'a pas pu être envoyé. Vérifie la connexion."); }
   $("lb-c-send").disabled = false;
 });
