@@ -34,6 +34,13 @@ service cloud.firestore {
     function viCanEdit(tripId) {
       return viIsEditor() || viIsTripEditor(tripId);
     }
+    // Compte « messager » qui envoie les notifications (tâche GitHub programmée). Adresse en .invalid :
+    // personne ne peut la confirmer ni la réinitialiser ; le compte est créé à la main dans la console Firebase.
+    function viIsNotifier() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && request.auth.token.email == 'messager@carnet.invalid';
+    }
     function viCanSee(tripId) {
       return viIsMember(tripId) || viCanEdit(tripId);
     }
@@ -58,6 +65,17 @@ service cloud.firestore {
       allow read, delete: if viIsOwner();
     }
 
+    // Clés des notifications : lues par le messager et le propriétaire seulement.
+    match /config/push {
+      allow read: if viIsNotifier() || viIsOwner();
+      allow write: if viIsOwner();
+    }
+    // Où en sont les notifications de chaque voyage.
+    match /notify/{tripId} {
+      allow read, write: if viIsNotifier();
+      allow read: if viIsOwner();
+    }
+
     match /config/editors {
       allow read: if viIsEditor();
       allow write: if viIsOwner();
@@ -72,10 +90,10 @@ service cloud.firestore {
     }
 
     match /trips/{tripId} {
-      allow get: if viIsMember(tripId) || viIsEditor()
+      allow get: if viIsMember(tripId) || viIsEditor() || viIsNotifier()
         || (viSignedInWithGoogle() && request.auth.token.email in resource.data.get('editors', []));
       // Un éditeur du voyage retrouve ses voyages (requête « editors contient mon adresse »).
-      allow list: if viIsEditor()
+      allow list: if viIsEditor() || viIsNotifier()
         || (viSignedInWithGoogle() && request.auth.token.email in resource.data.get('editors', []));
       allow create, delete: if viIsEditor();
       // L'éditeur d'un voyage le modifie, sauf la liste de ses éditeurs et son propriétaire.
@@ -84,7 +102,7 @@ service cloud.firestore {
             && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['editors', 'owner']));
 
       match /stops/{stopId} {
-        allow read: if viCanSee(tripId);
+        allow read: if viCanSee(tripId) || viIsNotifier();
         allow write: if viCanEdit(tripId);
       }
 
@@ -112,7 +130,7 @@ service cloud.firestore {
 
       // Commentaires sur les étapes : jamais modifiés, supprimés par leur auteur ou un éditeur.
       match /comments/{commentId} {
-        allow read: if viCanSee(tripId);
+        allow read: if viCanSee(tripId) || viIsNotifier();
         allow create: if viCanSee(tripId)
           && request.resource.data.keys().hasOnly(['photoId', 'text', 'name', 'uid', 'at'])
           && request.resource.data.uid == request.auth.uid
@@ -121,6 +139,21 @@ service cloud.firestore {
           && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
           && request.resource.data.at == request.time;
         allow delete: if viCanEdit(tripId) || (request.auth != null && resource.data.uid == request.auth.uid);
+      }
+
+      // Abonnements aux notifications (un par appareil) : chacun gère le sien ; le messager les lit et retire les périmés.
+      match /subs/{subId} {
+        allow create, update: if viCanSee(tripId)
+          && request.resource.data.keys().hasOnly(['endpoint', 'p256dh', 'auth', 'uid', 'at', 'ua'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.endpoint is string && request.resource.data.endpoint.size() <= 1000
+          && request.resource.data.endpoint.matches('https://.*')
+          && request.resource.data.p256dh is string && request.resource.data.p256dh.size() <= 200
+          && request.resource.data.auth is string && request.resource.data.auth.size() <= 100
+          && (resource == null || resource.data.uid == request.auth.uid);
+        allow get: if request.auth != null && resource.data.uid == request.auth.uid;
+        allow delete: if viIsNotifier() || (request.auth != null && resource.data.uid == request.auth.uid);
+        allow list: if viIsNotifier();
       }
 
       // L'id du document est le code d'accès : jamais lisible ni listable par les visiteurs.

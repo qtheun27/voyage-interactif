@@ -124,6 +124,7 @@
           <button type="button" data-view="carnet" aria-pressed="true">Carnet</button>
           <button type="button" data-view="photos" aria-pressed="false">Photos</button>
         </div>
+        <button class="btn ghost notify-btn" type="button" id="btn-notify" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span>Être prévenu</span></button>
         <div class="editor-tools" id="editor-tools" hidden>
           <button class="btn ghost" type="button" id="btn-addplace">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 21s7-7.5 7-12a7 7 0 0 0-14 0c0 4.5 7 12 7 12z"/><path d="M12 6v6M9 9h6"/></svg>
@@ -423,6 +424,18 @@
       </div>
     </form>
     <button class="linkbtn ns-skip" type="button" id="ns-skip">Continuer sans compte, juste avec mon prénom</button>
+  </div>
+</div>
+
+<!-- ============ Notifications : explications (iPhone) ============ -->
+<div class="overlay" id="notifsheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="nf-title">
+    <div class="sheet-head">
+      <h3 id="nf-title">Être prévenu des nouveautés</h3>
+      <button type="button" class="x" data-close="notifsheet" aria-label="Fermer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div id="nf-body"></div>
+    <div class="sheet-actions"><button class="btn primary" type="button" data-close="notifsheet">J'ai compris</button></div>
   </div>
 </div>
 
