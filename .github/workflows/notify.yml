@@ -1,0 +1,25 @@
+# Notifications des nouveautés (photos, commentaires) aux appareils abonnés : toutes les 10 minutes.
+# Le mot de passe du compte « messager@carnet.invalid » est dans le secret NOTIFIER_PASSWORD (Settings > Secrets and variables > Actions).
+name: Notifications
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: notifications
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-save --no-audit --no-fund web-push@3.6.7
+      - run: node tools/notify.mjs
+        env:
+          NOTIFIER_PASSWORD: ${{ secrets.NOTIFIER_PASSWORD }}

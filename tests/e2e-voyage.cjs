@@ -210,6 +210,10 @@ const txt = s => s.replace(/\s+/g, ' ').trim();
   await p.click('#add-submit');
   await v.waitForFunction(() => !document.querySelector('#toast').hidden && document.querySelector('#toast').textContent.includes('Nouvelle photo'), null, { timeout: 15000 });
   log('notification visiteur :', await v.textContent('#toast'));
+  // Lien d'une notification : la photo s'ouvre directement
+  const pid = await v.$eval('#list .stop button[data-open]', b => b.dataset.open).catch(() => null);
+  if (pid){ await v.goto(`http://127.0.0.1:8000/#/v/malte-2026/p/${pid}`); await v.waitForSelector('#lb:not([hidden])', { timeout: 15000 }).catch(() => {});
+    log('lien de notification : photo ouverte =', await v.isVisible('#lb'), '| adresse :', await v.evaluate(() => location.hash)); }
   console.log('ERREURS:', errs.length ? errs.join('\n') : 'aucune');
   await browser.close();
 })().catch(e => { console.error('ÉCHEC', e); process.exit(1); });

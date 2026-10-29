@@ -16,7 +16,9 @@ import { buildJourney, estimatePosition, legField, MODES } from "./lib/journey.j
 import { loadPack, ICONS } from "./packs/index.js";
 
 const APP = "Mon carnet de voyages";
-const VERSION = "2026-10-28e";
+const VERSION = "2026-10-28f";
+// Clé publique des notifications (la clé privée est dans config/push, lue par le seul compte « messager »).
+const VAPID_PUBLIC = "BLV2C5odpjUQP57Hr7QPNKdaY2IBlDMw0QZIztebizagx3E5hUavUWBXnBtkVAoT_FSyDxunF_8y_7jR9s4s-wE";
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const NDAY = 6;
@@ -121,6 +123,7 @@ if ("serviceWorker" in navigator && configured && !emulators?.host && location.p
   navigator.serviceWorker.register("sw.js").catch(() => {});
   let told = false;
   navigator.serviceWorker.addEventListener("message", e => {
+    if (e.data?.type === "open" && e.data.url){ location.href = e.data.url; return; }
     if (e.data?.type !== "update" || told) return; told = true;
     if (Date.now() - bootAt < 6000 && !adding && $("add").hidden) location.reload();
     else toast("Une nouvelle version de l'appli est prête.", () => location.reload(), "Recharger");
@@ -257,7 +260,7 @@ function parseHash(){
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (parts[0] === "admin") return {name:"appadmin"};
   if (parts[0] === "editeur") return {name:"invite", email: parts[1] || "", trip: parts[2] || ""};
-  if (parts[0] === "v" && parts[1]) return {name: parts[2] === "admin" ? "admin" : "trip", id: parts[1], code: parts[2] === "c" ? parts[3] : null};
+  if (parts[0] === "v" && parts[1]) return {name: parts[2] === "admin" ? "admin" : "trip", id: parts[1], code: parts[2] === "c" ? parts[3] : null, photo: parts[2] === "p" ? parts[3] : null};
   return {name:"home"};
 }
 let routeSeq = 0;
@@ -267,6 +270,8 @@ async function route(authChanged){
   const seq = ++routeSeq, r = parseHash();
   // Lien partagé avec le code : on le garde de côté et on l'efface de l'adresse.
   if (r.code){ linkCode = { id: r.id, code: normCode(r.code) }; history.replaceState(null, "", `#/v/${encodeURIComponent(r.id)}`); }
+  // Lien d'une notification : la photo s'ouvrira dès que le carnet sera chargé.
+  if (r.photo){ pendingPhoto = { trip: r.id, photo: r.photo }; history.replaceState(null, "", `#/v/${encodeURIComponent(r.id)}`); }
   if (r.name !== "trip") closeTrip();
   setEditContext(r.name === "trip" || r.name === "admin" ? r.id : null);
   // Invité comme éditeur d'un voyage : une fois connecté, on y va directement.
@@ -633,7 +638,13 @@ $("nt-form").addEventListener("submit", async e => {
 /* =================================================================== */
 /* Accès avec code                                                     */
 /* =================================================================== */
-let gateTrip = null, linkCode = null, lastJoinErr = null, justJoined = null;
+let gateTrip = null, linkCode = null, lastJoinErr = null, justJoined = null, pendingPhoto = null;
+function openPending(){
+  if (!pendingPhoto || pendingPhoto.trip !== T.id || !T.loaded) return;
+  const id = pendingPhoto.photo; pendingPhoto = null;
+  $("hero").hidden = true;
+  if (T.photos.some(x => x.id === id)) setTimeout(() => openPhoto(id, true), 300);
+}
 /* Un blocage chez un visiteur est noté (étape, code d'erreur, navigateur) pour pouvoir le comprendre à distance. */
 /* ---------- Lecture de secours par l'API REST de Firestore ----------
    Certains navigateurs (Brave sur iPhone, par exemple) laissent passer les écritures mais pas la connexion en direct :
@@ -763,7 +774,7 @@ function closeTrip(){
 
 async function openTrip(id, seq, force){
   if (!idOk(id)){ location.hash = "#/"; return; }
-  if (T.id === id && T.map && !force){ show("screen-trip"); setTimeout(() => T.map?.invalidateSize(), 0); return; }
+  if (T.id === id && T.map && !force){ show("screen-trip"); setTimeout(() => T.map?.invalidateSize(), 0); openPending(); return; }
   closeTrip();
   if (!user && auth.currentUser) user = auth.currentUser;
   if (!user) return showGate(id, "", "pas connecté");
@@ -794,7 +805,7 @@ async function openTrip(id, seq, force){
     if (isEditor){ show("screen-home"); $("home-cards").innerHTML = `<div class="empty"><strong>Ce voyage n'existe pas encore</strong>${id === SEED.id ? `<button class="btn primary" type="button" id="seed-now" style="margin-top:10px">Créer « ${esc(SEED.title)} »</button>` : "Crée-le depuis l'accueil."}</div>`; $("seed-now")?.addEventListener("click", () => openNewTrip(SEED)); return; }
     forget(id); return showGate(id, "", snap ? "voyage introuvable" : "pas de réponse");
   }
-  T.id = id; setTrip(snap.data());
+  T.id = id; setTrip(snap.data()); drawNotify(); if (!isEditor && isIOS) rememberInstallLink();
   if (!isEditor) remember(id, {id, ...T.trip});
   show("screen-trip");
   // La carte (fonds GeoJSON) et les photos se chargent en même temps.
@@ -814,7 +825,7 @@ async function openTrip(id, seq, force){
         .filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng) && Number.isFinite(s.at));
       T.loaded = true;
       await mapReady; if (T.id !== id) return;
-      render(isFirst); if (isFirst) maybeHero();
+      render(isFirst); if (isFirst){ maybeHero(); openPending(); }
     } catch(err){ report("secours REST (photos)", err, id); if (err?.code === "permission-denied") revoked(id); }
   };
   T.restSync = restSync;
@@ -847,7 +858,7 @@ async function openTrip(id, seq, force){
     const after = () => {
       const keepPhoto = lbCurrentId();
       render(isFirst);
-      if (isFirst) maybeHero();
+      if (isFirst){ maybeHero(); openPending(); }
       if (added.length) announce(added);
       if (!$("lb").hidden && keepPhoto){ const k = T.flat.findIndex(f => f.e.items[f.i].id === keepPhoto); if (k < 0) closeLb(); else { lbPos = k; if ($("lb-edit").hidden) drawLb(); } }
       fillMissingNames();
@@ -2650,6 +2661,65 @@ async function openInvite(email, seq, trip){
   openAccount(true);
   $("ac-email").value = email || "";
   setMsg("ac-login-msg", `Bienvenue ! Tu es invité(e) comme éditeur. Si ${email || "ton adresse"} est une adresse Gmail, touche « Continuer avec Google ». Sinon, choisis un mot de passe et touche « Créer mon compte » (puis confirme ton adresse avec le lien reçu par e-mail).`, "ok");
+}
+
+/* ---------- Notifications des nouveautés (photos, commentaires) ---------- */
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const pushOk = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const b64u = s => { const p = "=".repeat((4 - s.length % 4) % 4), b = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+const u8b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function subId(endpoint){ const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(endpoint)); return [...new Uint8Array(h)].slice(0, 20).map(b => b.toString(16).padStart(2, "0")).join(""); }
+function notifySubscribed(){ try { return JSON.parse(localStorage.getItem("vi.notify") || "{}")[T.id] === true; } catch(_){ return false; } }
+function setNotifyFlag(on){ try { const m = JSON.parse(localStorage.getItem("vi.notify") || "{}"); m[T.id] = on; localStorage.setItem("vi.notify", JSON.stringify(m)); } catch(_){} }
+function drawNotify(){
+  const on = notifySubscribed() && pushOk() && Notification.permission === "granted";
+  $("btn-notify").setAttribute("aria-pressed", String(on));
+  $("btn-notify").querySelector("span").textContent = on ? "Prévenu" : "Être prévenu";
+  $("btn-notify").hidden = !T.trip;
+}
+function notifyHelp(html){ $("nf-body").innerHTML = html; $("notifsheet").hidden = false; }
+document.querySelectorAll('[data-close="notifsheet"]').forEach(b => b.onclick = () => $("notifsheet").hidden = true);
+$("btn-notify").onclick = async () => {
+  if (!T.id) return;
+  // iPhone : les notifications n'existent que pour l'appli ajoutée à l'écran d'accueil.
+  if (isIOS && !standalone()){
+    rememberInstallLink();
+    return notifyHelp(`<ol class="nf-steps">
+      <li>Ouvre ce carnet dans <b>Safari</b> (si tu es dans WhatsApp, Brave… : « Ouvrir dans Safari »).</li>
+      <li>Touche <b>Partager</b> <span aria-hidden="true">⬆︎</span>, puis <b>« Sur l'écran d'accueil »</b>, puis <b>Ajouter</b>.</li>
+      <li>Ouvre <b>Mon carnet de voyages</b> depuis l'écran d'accueil, puis touche à nouveau <b>🔔 Être prévenu</b>.</li></ol>
+      <p class="muted">C'est une règle d'Apple : sur iPhone, seules les applis posées sur l'écran d'accueil reçoivent des notifications.</p>`);
+  }
+  if (!pushOk()) return notifyHelp(`<p>Ce navigateur ne sait pas recevoir de notifications. Essaie avec Chrome ou Safari à jour.</p>`);
+  const reg = await navigator.serviceWorker.ready;
+  if (notifySubscribed() && Notification.permission === "granted"){
+    // Désactiver pour ce voyage
+    try { const s = await reg.pushManager.getSubscription(); if (s) await deleteDoc(doc(db, `trips/${T.id}/subs/${await subId(s.endpoint)}`)).catch(() => {}); } catch(_){}
+    setNotifyFlag(false); drawNotify(); toast("Tu ne seras plus prévenu pour ce voyage."); return;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") return notifyHelp(`<p>Les notifications sont refusées pour ce site. Autorise-les dans les réglages du téléphone (Notifications), puis réessaie.</p>`);
+  try {
+    let s = await reg.pushManager.getSubscription();
+    if (!s) s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(VAPID_PUBLIC) });
+    const j = s.toJSON();
+    await setDoc(doc(db, `trips/${T.id}/subs/${await subId(s.endpoint)}`), { endpoint: s.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth,
+      uid: auth.currentUser.uid, at: Date.now(), ua: navigator.userAgent.slice(0, 120) });
+    setNotifyFlag(true); drawNotify();
+    toast("🔔 C'est noté : tu seras prévenu des nouvelles photos et des commentaires.");
+  } catch(err){ report("notifications", err, T.id); notifyHelp(`<p>L'activation n'a pas marché (${esc(err?.message || "erreur")}). Réessaie dans un instant.</p>`); }
+};
+/* iPhone : l'appli posée sur l'écran d'accueil a sa propre mémoire. Son adresse de départ contient le voyage et son code,
+   pour qu'elle s'ouvre directement sur le carnet. */
+function rememberInstallLink(){
+  const code = storedCode(T.id); if (!code) return;
+  try {
+    const base = new URL("./", location.href).href;
+    const m = { name: APP, short_name: "Carnet", start_url: visitLink(T.id, code), scope: base, display: "standalone", background_color: "#f4e8cc", theme_color: "#1f5fa8",
+      icons: [192, 512].map(n => ({ src: `${base}icons/icon-${n}.png`, sizes: `${n}x${n}`, type: "image/png" })) };
+    document.querySelector('link[rel="manifest"]').href = "data:application/manifest+json," + encodeURIComponent(JSON.stringify(m));
+  } catch(_){}
 }
 
 /* ---------- Démarrage ---------- */

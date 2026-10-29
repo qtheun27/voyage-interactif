@@ -55,3 +55,24 @@ self.addEventListener("fetch", e => {
     return fresh;
   }));
 });
+
+/* Notifications des nouveautés : affichées telles qu'envoyées par le messager ; un toucher ouvre la photo concernée. */
+self.addEventListener("push", e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch(_){ d = { body: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || "Mon carnet de voyages", {
+    body: d.body || "Du nouveau dans le carnet", icon: "icons/icon-192.png", badge: "icons/icon-192.png",
+    image: d.image || undefined, tag: d.tag || undefined, renotify: !!d.tag, data: { url: d.url || "./" }
+  }));
+});
+self.addEventListener("notificationclick", e => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || "./", self.registration.scope).href;
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const w of wins){
+      if (w.url.startsWith(self.registration.scope)){ await w.focus(); try { await w.navigate(url); } catch(_){ w.postMessage({ type: "open", url }); } return; }
+    }
+    await self.clients.openWindow(url);
+  })());
+});
