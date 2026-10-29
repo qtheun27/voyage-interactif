@@ -757,3 +757,14 @@ body.storying .mapwrap::after,body.storying .mapwrap::before,body.storying .leaf
 .notify-btn svg{width:17px;height:17px}
 .notify-btn[aria-pressed="true"]{background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);border-color:transparent}
 .nf-steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px;line-height:1.45}
+
+.notify-btn{color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 45%,transparent)!important;background:var(--panel)!important;font-weight:700}
+.notify-card{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:6px 0 16px;padding:14px;border-radius:16px;background:var(--panel);border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));box-shadow:0 4px 14px rgba(10,25,32,.08)}
+.nc-ico{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent);flex:none}
+.nc-ico svg{width:22px;height:22px;animation:ring 2.4s ease-in-out infinite;transform-origin:50% 10%}
+@keyframes ring{0%,60%,100%{transform:rotate(0)}10%{transform:rotate(14deg)}20%{transform:rotate(-12deg)}30%{transform:rotate(8deg)}40%{transform:rotate(-4deg)}}
+.nc-txt{flex:1 1 180px;display:flex;flex-direction:column;gap:2px}
+.nc-txt small{color:var(--muted);line-height:1.35}
+.nc-btns{display:flex;gap:12px;align-items:center;margin-left:auto}
+.hero-notify{display:inline-flex;align-items:center;gap:6px;margin-top:14px;color:#fff;opacity:.9;font-weight:600}
+.hero-notify svg{width:17px;height:17px}
