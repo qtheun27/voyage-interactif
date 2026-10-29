@@ -1117,7 +1117,7 @@ function renderLog(){
   }
   if (T.view === "photos") return renderGallery(el);
   // Un chapitre par jour : grande photo, le parcours du jour, puis les étapes en pages de carnet.
-  el.innerHTML = byDay(visibleEntries()).map(([d,l]) => {
+  el.innerHTML = notifyCard() + byDay(visibleEntries()).map(([d,l]) => {
     const st = l.filter(e => e.kind === "stop"), dd = l.filter(e => e.kind === "leg" && !e.off).reduce((s, x) => s + x.km, 0);
     const n = l.reduce((s, e) => s + e.items.filter(x => x.hasPhoto).length, 0), cov = dayCover(l);
     const route = [...new Set(st.map(s => s.place).filter(Boolean))];
@@ -2678,6 +2678,20 @@ function drawNotify(){
   $("btn-notify").querySelector("span").textContent = on ? "Prévenu" : "Être prévenu";
   $("btn-notify").hidden = !T.trip;
 }
+/* En tête du carnet, tant qu'on n'est pas abonné : une invitation bien visible (qu'on peut écarter). */
+function notifyCard(){
+  let later = false; try { later = JSON.parse(localStorage.getItem("vi.notifyLater") || "{}")[T.id] === true; } catch(_){}
+  if (later || (notifySubscribed() && "Notification" in window && Notification.permission === "granted")) return "";
+  return `<div class="notify-card"><span class="nc-ico">${BELL_SVG}</span><span class="nc-txt"><b>Sois prévenu des nouveautés</b><small>Une notification dès que de nouvelles photos ou des commentaires arrivent.</small></span>
+    <span class="nc-btns"><button class="btn primary" type="button" data-action="notify">Activer</button><button class="linkbtn" type="button" data-action="notify-later">Plus tard</button></span></div>`;
+}
+const BELL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>';
+document.addEventListener("click", e => {
+  const a = e.target.closest('[data-action="notify"], [data-action="notify-later"]'); if (!a) return;
+  if (a.dataset.action === "notify"){ $("hero").hidden = true; $("btn-notify").click(); return; }
+  try { const m = JSON.parse(localStorage.getItem("vi.notifyLater") || "{}"); m[T.id] = true; localStorage.setItem("vi.notifyLater", JSON.stringify(m)); } catch(_){}
+  renderLog();
+});
 function notifyHelp(html){ $("nf-body").innerHTML = html; $("notifsheet").hidden = false; }
 document.querySelectorAll('[data-close="notifsheet"]').forEach(b => b.onclick = () => $("notifsheet").hidden = true);
 $("btn-notify").onclick = async () => {
@@ -2706,7 +2720,7 @@ $("btn-notify").onclick = async () => {
     const j = s.toJSON();
     await setDoc(doc(db, `trips/${T.id}/subs/${await subId(s.endpoint)}`), { endpoint: s.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth,
       uid: auth.currentUser.uid, at: Date.now(), ua: navigator.userAgent.slice(0, 120) });
-    setNotifyFlag(true); drawNotify();
+    setNotifyFlag(true); drawNotify(); renderLog();
     toast("🔔 C'est noté : tu seras prévenu des nouvelles photos et des commentaires.");
   } catch(err){ report("notifications", err, T.id); notifyHelp(`<p>L'activation n'a pas marché (${esc(err?.message || "erreur")}). Réessaie dans un instant.</p>`); }
 };
