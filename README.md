@@ -94,6 +94,12 @@ Bouton de la carte (en haut) : **Paysage** (par défaut : vue du ciel Sentinel-2
 - **sw.js** garde l'appli, les bibliothèques, les polices et les fonds de carte sur le téléphone ; une nouvelle version publiée est détectée et l'appli se recharge d'elle-même à l'ouverture (ou propose « Recharger »).
 - Carte et photos se chargent en parallèle ; exifr (photos HEIC) n'est chargé qu'au premier ajout de photos qui en a besoin ; modules Firebase préchargés.
 
+## Notifications des nouveautés
+
+- Bouton **🔔 Être prévenu** dans le carnet : abonnement Web Push de l'appareil, rangé dans `trips/{id}/subs/{empreinte}` (chacun gère le sien). Sur iPhone, seulement depuis l'appli ajoutée à l'écran d'accueil (règle d'Apple) : le bouton l'explique, et l'appli posée s'ouvre directement sur le voyage.
+- **Messager** : `tools/notify.mjs`, lancé toutes les 10 minutes par `.github/workflows/notify.yml`. Il regroupe les photos publiées et les commentaires arrivés depuis le dernier passage (`notify/{voyage}`), attend 3 minutes de calme après un envoi de photos, et prévient chaque abonné sauf l'auteur. Un toucher ouvre `#/v/{voyage}/p/{photo}`.
+- Le messager se connecte avec le compte Firebase `messager@carnet.invalid` (reconnu par son identifiant dans les règles, lecture seule) ; son mot de passe est dans le secret GitHub `NOTIFIER_PASSWORD`. Clés VAPID dans `config/push` (lue par le messager et le propriétaire), clé publique dans `app.js`.
+
 ## Tests
 
 ```sh
