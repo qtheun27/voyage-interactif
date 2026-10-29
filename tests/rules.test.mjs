@@ -240,7 +240,7 @@ test("notifications : abonnements des membres, lecture par le messager seulement
   await assertFails(getDocs(collection(db, "trips/malte-2026/subs")));                    // pas la liste des autres
   const v2 = visitor("v2"); await assertSucceeds(join(v2, "malte-2026", "MALTE-26", "v2"));
   await assertFails(setDoc(doc(v2.firestore(), "trips/malte-2026/subs/s1"), { ...sub, uid: "v2" }));  // pas celui d'un autre
-  const n = ctx("notif", { email: "messager@carnet.invalid", email_verified: false, firebase: { sign_in_provider: "password" } }), nd = n.firestore();
+  const n = ctx("TwWl7YwcooNdVytMFlQvMKnQG7R2", { email: "messager@carnet.invalid", email_verified: false, firebase: { sign_in_provider: "password" } }), nd = n.firestore();
   await assertSucceeds(getDocs(collection(nd, "trips")));
   await assertSucceeds(getDocs(collection(nd, "trips/malte-2026/stops")));
   await assertSucceeds(getDocs(collection(nd, "trips/malte-2026/subs")));
@@ -250,6 +250,8 @@ test("notifications : abonnements des membres, lecture par le messager seulement
   await assertFails(setDoc(doc(nd, "trips/malte-2026/stops/x"), { lat: 1 }));            // ne publie rien
   await assertFails(getDocs(collection(nd, "trips/malte-2026/codes")));                   // ni les codes
   await assertFails(getDoc(doc(db, "config/push")));
-  const g = ctx("g", { email: "messager@carnet.invalid", email_verified: true, firebase: { sign_in_provider: "google.com" } });
+  const g = ctx("TwWl7YwcooNdVytMFlQvMKnQG7R2", { email: "messager@carnet.invalid", email_verified: true, firebase: { sign_in_provider: "google.com" } });
+  const imp = ctx("imposteur", { email: "messager@carnet.invalid", email_verified: false, firebase: { sign_in_provider: "password" } });
+  await assertFails(getDocs(collection(imp.firestore(), "trips/malte-2026/subs")));       // autre compte, même adresse
   await assertFails(getDocs(collection(g.firestore(), "trips/malte-2026/subs")));         // seulement le compte e-mail
 });

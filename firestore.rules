@@ -34,10 +34,11 @@ service cloud.firestore {
     function viCanEdit(tripId) {
       return viIsEditor() || viIsTripEditor(tripId);
     }
-    // Compte « messager » qui envoie les notifications (tâche GitHub programmée). Adresse en .invalid :
-    // personne ne peut la confirmer ni la réinitialiser ; le compte est créé à la main dans la console Firebase.
+    // Compte « messager » qui envoie les notifications (tâche GitHub programmée) : ce compte précis seulement
+    // (identifiant et adresse en .invalid, que personne ne peut confirmer ni réinitialiser). Lecture seule.
     function viIsNotifier() {
       return request.auth != null
+        && request.auth.uid == 'TwWl7YwcooNdVytMFlQvMKnQG7R2'
         && request.auth.token.firebase.sign_in_provider == 'password'
         && request.auth.token.email == 'messager@carnet.invalid';
     }
